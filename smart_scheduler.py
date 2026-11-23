@@ -164,8 +164,8 @@ def add_batch_to_queue(job_id: str, planned_clips: List[Dict[str, Any]]) -> List
             "clip_index": clip.get("clip_index") or clip.get("index") or 0,
             "video_url": clip.get("video_url") or clip.get("url") or "",
             "video_path": clip.get("video_path") or clip.get("path") or "",
-            "title": clip.get("title") or clip.get("headline") or "Clip GTA 6",
-            "description": clip.get("description") or "",
+            "title": clip.get("title") or clip.get("video_title_for_facebook") or clip.get("video_title_for_youtube_short") or clip.get("viral_hook_text") or clip.get("headline") or f"Clip #{clip.get('clip_index', 0) + 1}",
+            "description": clip.get("description") or clip.get("video_description_for_facebook") or clip.get("video_description_for_tiktok") or clip.get("video_description_for_instagram") or clip.get("caption") or "",
             "scheduled_datetime": clip.get("scheduled_datetime"),
             "display_slot": clip.get("display_slot"),
             "status": "scheduled",  # scheduled, processing, published, failed

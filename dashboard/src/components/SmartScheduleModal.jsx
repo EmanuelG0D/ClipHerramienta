@@ -22,14 +22,18 @@ export default function SmartScheduleModal({ isOpen, onClose, clips, jobId }) {
             setError(null);
             try {
                 const payload = {
-                    clips: clips.map((c, i) => ({
-                        clip_index: i,
-                        video_url: c.video_url || '',
-                        video_path: c.video_path || c.video_url || '',
-                        title: c.headline || c.title || `Clip #${i + 1}`,
-                        description: c.post_text || c.caption || c.description || '',
-                        score: c.score || 0
-                    }))
+                    clips: clips.map((c, i) => {
+                        const title = c.video_title_for_facebook || c.video_title_for_youtube_short || c.viral_hook_text || c.headline || c.title || `Clip #${i + 1}`;
+                        const description = c.video_description_for_facebook || c.video_description_for_tiktok || c.video_description_for_instagram || c.post_text || c.caption || c.description || '';
+                        return {
+                            clip_index: i,
+                            video_url: c.video_url || '',
+                            video_path: c.video_path || c.video_url || '',
+                            title: title,
+                            description: description,
+                            score: c.score || 0
+                        };
+                    })
                 };
                 const res = await apiFetch('/api/social/plan-batch', {
                     method: 'POST',
