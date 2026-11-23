@@ -1,5 +1,6 @@
 import os
 import llm_backend
+import ai_providers
 import re
 import sys
 import uuid
@@ -481,16 +482,26 @@ def _apply_source_cut(env, partial):
     was billed: the user paid for "from 2:10 to 7:40", not for 5 minutes.
     """
     env.pop("SOURCE_START_SECONDS", None)
-    if not partial or not partial.get("processed_minutes"):
+    if not partial:
         env.pop("MAX_SOURCE_MINUTES", None)
         return
-    if partial.get("start_seconds") is not None and partial.get("end_seconds") is not None:
-        start, end = float(partial["start_seconds"]), float(partial["end_seconds"])
-        env["MAX_SOURCE_MINUTES"] = f"{(end - start) / 60.0:.4f}"
-        if start > 0:
-            env["SOURCE_START_SECONDS"] = f"{start:.3f}"
-    else:
+    start = partial.get("start_seconds")
+    end = partial.get("end_seconds")
+    if start is not None and end is not None:
+        start_f, end_f = float(start), float(end)
+        env["MAX_SOURCE_MINUTES"] = f"{(end_f - start_f) / 60.0:.4f}"
+        if start_f > 0:
+            env["SOURCE_START_SECONDS"] = f"{start_f:.3f}"
+    elif start is not None and float(start) > 0:
+        env["SOURCE_START_SECONDS"] = f"{float(start):.3f}"
+        if partial.get("processed_minutes"):
+            env["MAX_SOURCE_MINUTES"] = str(partial["processed_minutes"])
+        else:
+            env.pop("MAX_SOURCE_MINUTES", None)
+    elif partial.get("processed_minutes"):
         env["MAX_SOURCE_MINUTES"] = str(partial["processed_minutes"])
+    else:
+        env.pop("MAX_SOURCE_MINUTES", None)
 
 
 def _discard_rejected_source(input_path, job_output_dir, upload_slot=None, upload_id=None):
@@ -589,6 +600,29 @@ async def reserve_process_minutes(request, url, input_path, job_id, max_minutes=
     on the operator's key for free. Only skip metering when billing is off.
     """
     if not BILLING_ENABLED:
+        if source_range:
+            start_raw, end_raw = source_range
+            try:
+                start_s = float(start_raw) if start_raw not in (None, "") else 0.0
+                end_s = float(end_raw) if end_raw not in (None, "") else None
+                if end_s is not None and end_s > start_s:
+                    partial = {
+                        "start_seconds": start_s,
+                        "end_seconds": end_s,
+                        "processed_minutes": (end_s - start_s) / 60.0,
+                        "chosen": True,
+                    }
+                    return None, 2, None, None, partial
+                elif start_s > 0 and end_s is None:
+                    partial = {
+                        "start_seconds": start_s,
+                        "end_seconds": None,
+                        "processed_minutes": None,
+                        "chosen": True,
+                    }
+                    return None, 2, None, None, partial
+            except (ValueError, TypeError):
+                pass
         return None, 2, None, None, None
     user = await _user_from_request(request)
     if not managed_keys.has_active_entitlement(user):
@@ -1900,6 +1934,11 @@ def _recover_jobs_from_disk():
                 'result': {'clips': clips, 'cost_analysis': data.get('cost_analysis')},
             }
             recovered += 1
+            try:
+                import url_tracker
+                url_tracker.update_job_info(job_id, title=base_name.replace("_", " "), clips_count=len(clips))
+            except Exception:
+                pass
         except Exception as e:
             print(f"⚠️ Could not recover job {job_id}: {e}")
     if recovered:
@@ -4780,9 +4819,10 @@ def _job_nice():
 
 
 def _lower_priority():
-    n = _job_nice()
-    if n:
-        os.nice(n)
+    if hasattr(os, "nice"):
+        n = _job_nice()
+        if n:
+            os.nice(n)
 
 
 def _job_encode_env(env):
@@ -4906,13 +4946,22 @@ async def _run_main(job_id, cmd, env, tick=None):
     called every couple of seconds. Cancelled (the server is stopping): the
     child is killed so it cannot keep writing into the job dir while the next
     instance resumes the same job."""
+    popen_kwargs = {}
+    if sys.platform != "win32":
+        popen_kwargs["preexec_fn"] = _lower_priority
+    else:
+        try:
+            popen_kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS
+        except Exception:
+            pass
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, # Merge stderr to stdout
         env=env,
         cwd=os.getcwd(),
-        preexec_fn=_lower_priority,
+        **popen_kwargs,
     )
     # We need to capture logs in a thread because Popen isn't async
     t_log = threading.Thread(target=enqueue_output, args=(process.stdout, job_id))
@@ -5399,9 +5448,48 @@ async def get_config():
         "googleAuthEnabled": bool(BILLING_ENABLED and cloud.settings.google_auth_enabled),
         "jobRetentionSeconds": JOB_RETENTION_SECONDS,
         # Self-host only: tells the dashboard the Gemini key is optional
-        # because the moment picker runs on an OpenAI-compatible server.
+        # because the moment picker runs on Antigravity ACP or an OpenAI-compatible server.
         "localLlm": None if BILLING_ENABLED else llm_backend.describe(),
+        "aiProvider": None if BILLING_ENABLED else ai_providers.describe_for_dashboard(),
     }
+
+
+@app.get("/api/ai/providers")
+async def get_ai_providers():
+    """Retrieve diagnostic and configuration status for all 4 AI providers."""
+    return ai_providers.get_all_providers_status()
+
+
+@app.post("/api/ai/provider/select")
+async def select_ai_provider(request: Request):
+    """Select the active AI provider and update its settings."""
+    body = await request.json()
+    provider_name = body.get("provider", "antigravity")
+    settings = body.get("settings", {})
+    return ai_providers.set_active_provider(provider_name, settings)
+
+
+@app.post("/api/ai/test-connection")
+async def test_ai_provider_connection(request: Request):
+    """Test connection for a designated provider."""
+    body = await request.json()
+    provider_name = body.get("provider", "antigravity")
+    settings = body.get("settings", {})
+    return ai_providers.test_provider_connection(provider_name, settings)
+
+
+@app.post("/api/ai/antigravity/login")
+async def trigger_antigravity_login():
+    """Launch interactive Google login for Antigravity CLI."""
+    return ai_providers.launch_antigravity_login()
+
+def _python_bin() -> str:
+    """Return python binary path, preferring the project's .venv if present."""
+    venv_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "Scripts", "python.exe")
+    if os.path.isfile(venv_py):
+        return venv_py
+    return sys.executable
+
 
 async def _probe_youtube_quality(url: str) -> dict:
     """What the source offers ({max_height, duration, ...}); {} on any failure
@@ -5419,7 +5507,7 @@ async def _probe_youtube_quality(url: str) -> dict:
     def _run():
         try:
             proc = subprocess.run(
-                [sys.executable, QUALITY_PROBE_SCRIPT, "--url", url],
+                [_python_bin(), QUALITY_PROBE_SCRIPT, "--url", url],
                 capture_output=True, timeout=75, env=child_env(),
             )
             return json.loads(proc.stdout.decode(errors="replace").strip() or "{}")
@@ -5779,6 +5867,27 @@ async def process_estimate(req: EstimateRequest, request: Request):
         balance.get("plan"), minutes, balance["remaining"], processed_before)}
 
 
+@app.get("/api/check-url")
+@app.post("/api/check-url")
+async def check_url_endpoint(request: Request, url: Optional[str] = None):
+    """
+    Verifica si un enlace (YouTube u otra URL) ya fue procesado antes.
+    Devuelve { used: true, job_id, title, date, clips_count } o { used: false }
+    """
+    target_url = url
+    if not target_url and request.method == "POST":
+        try:
+            body = await request.json()
+            target_url = body.get("url")
+        except Exception:
+            pass
+    if not target_url:
+        return {"used": False}
+
+    import url_tracker
+    return url_tracker.check_url(target_url)
+
+
 @app.post("/api/process")
 async def process_endpoint(
     request: Request,
@@ -5812,11 +5921,15 @@ async def process_endpoint(
 
     ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
     force_low = str(force_low_quality).lower() in ("1", "true", "yes")
+    ai_provider = request.headers.get("x-ai-provider")
+    ai_model = request.headers.get("x-ai-model")
 
     # Handle JSON body manually for URL payload
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         body = await request.json()
+        ai_provider = body.get("ai_provider") or ai_provider
+        ai_model = body.get("ai_model") or ai_model
         url = body.get("url")
         ack_flag = bool(body.get("acknowledged"))
         force_low = bool(body.get("force_low_quality"))
@@ -5909,17 +6022,31 @@ async def process_endpoint(
     _begin_job_dir(job_id)  # the sweeps keep its dir and source until it is in `jobs`
     os.makedirs(job_output_dir, exist_ok=True)
 
+    if url:
+        try:
+            import url_tracker
+            url_tracker.record_url(url, job_id)
+        except Exception:
+            pass
+
     # Prepare Command
-    # sys.executable, not "python": bare "python" resolves against PATH, which
-    # outside Docker is whatever interpreter happens to be first — not the venv
-    # running this server. Every job then dies on `import cv2`. The quality
-    # probe above already gets this right.
-    cmd = [sys.executable, "-u", "main.py"] # -u for unbuffered
+    # _python_bin() ensures we always invoke the virtualenv interpreter containing
+    # faster-whisper, OpenCV, and all project ML dependencies.
+    cmd = [_python_bin(), "-u", "main.py"] # -u for unbuffered
     env = child_env()
     if api_key:
         env["GEMINI_API_KEY"] = api_key # Override with key from request
     else:
         env.pop("GEMINI_API_KEY", None)  # local-LLM job: main.py must not find a stale key
+
+    # Pass active AI provider and model into child process environment
+    active_p = ai_provider or ai_providers.get_active_provider_name()
+    if active_p:
+        env["LLM_PROVIDER"] = active_p
+    p_model = ai_model or ai_providers.get_provider_config(active_p).get("model")
+    if p_model:
+        env["ANTIGRAVITY_MODEL"] = p_model
+        env["LLM_MODEL"] = p_model
     # The stdio fix above only covers this process. main.py prints an emoji on
     # its first line and configures nothing, so on a cp1252 console the child
     # still dies before it renders anything -- the server starts and every job
@@ -8723,6 +8850,13 @@ class SocialPostRequest(BaseModel):
     scheduled_date: Optional[str] = None # ISO-8601 string
     timezone: Optional[str] = "UTC"
 
+
+class BrowserPublishRequest(BaseModel):
+    platform: str
+    video_url: str
+    title: Optional[str] = ""
+    description: Optional[str] = ""
+
 import httpx
 
 
@@ -8804,6 +8938,43 @@ async def _check_social_post_rate(request):
                 f"The limit resets at midnight UTC; paid plans have no daily limit: {upgrade_url('post_limit')}"))
         _social_post_days[(key, today)] = used + 1
     times.append(now)
+
+
+@app.post("/api/social/browser-open")
+async def browser_publish_open(req: BrowserPublishRequest):
+    import importlib
+    import browser_publisher
+    importlib.reload(browser_publisher)
+
+    raw_url = req.video_url or ""
+    import urllib.parse
+    raw_url_unquoted = urllib.parse.unquote(raw_url)
+    if raw_url_unquoted.startswith("/videos/"):
+        rel = raw_url_unquoted[len("/videos/"):].lstrip("/\\")
+        abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, rel))
+    elif os.path.exists(raw_url_unquoted):
+        abs_path = os.path.abspath(raw_url_unquoted)
+    elif raw_url.startswith("/videos/"):
+        rel = raw_url[len("/videos/"):].lstrip("/\\")
+        abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, rel))
+    elif os.path.exists(raw_url):
+        abs_path = os.path.abspath(raw_url)
+    else:
+        abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, raw_url_unquoted))
+
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail=f"Video file not found: {abs_path}")
+
+    try:
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            browser_publisher.prepare_post,
+            req.platform, abs_path, req.title or "", req.description or ""
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/social/post")
@@ -10931,3 +11102,362 @@ async def saasshorts_voices(
         ],
         "source": "defaults",
     }
+
+
+# =====================================================================
+# OPENSHORTS AI ASSISTANT: INTERNAL HELPERS & REST ENDPOINTS
+# =====================================================================
+
+def get_job_status_internal(job_id: str) -> Optional[Dict[str, Any]]:
+    """Return status and result for a job_id (in-memory or on-disk)."""
+    job = jobs.get(job_id)
+    if job is None:
+        job = _job_view_from_disk(job_id)
+    if job is None:
+        return None
+    _logs_view = _visible_logs_timed(job.get('logs', []))
+    res = _with_download_urls(job.get('result'))
+    return {
+        "job_id": job_id,
+        "status": _presented_status(job_id, job),
+        "logs": _logs_view[0] if _logs_view else [],
+        "log_times": _logs_view[1] if _logs_view else [],
+        "result": res,
+        "queue": queue_snapshot(job_id),
+        "partial": job.get('partial'),
+    }
+
+
+def list_recent_jobs_internal(limit: int = 5) -> List[Dict[str, Any]]:
+    """List recent video jobs from memory and disk."""
+    _recover_jobs_from_disk()
+    recent = []
+    if os.path.isdir(OUTPUT_DIR):
+        entries = []
+        for name in os.listdir(OUTPUT_DIR):
+            p = os.path.join(OUTPUT_DIR, name)
+            if os.path.isdir(p):
+                try:
+                    entries.append((os.path.getmtime(p), name))
+                except OSError:
+                    pass
+        entries.sort(key=lambda x: x[0], reverse=True)
+        for mtime, jid in entries[:limit]:
+            st = get_job_status_internal(jid)
+            if st:
+                recent.append({
+                    "job_id": jid,
+                    "status": st.get("status"),
+                    "clips_count": len((st.get("result") or {}).get("clips", [])),
+                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)) if mtime else "",
+                })
+    return recent
+
+
+async def create_video_job_internal(
+    url: Optional[str] = None,
+    input_path: Optional[str] = None,
+    acknowledged: bool = True,
+    output_format: str = "auto",
+    layouts: Optional[List[str]] = None,
+    target_clips: Optional[int] = None,
+    clip_min_seconds: Optional[int] = None,
+    clip_max_seconds: Optional[int] = None,
+    creative_style: Optional[str] = None,
+    avoid_ranges: Optional[List[List[float]]] = None,
+    auto_hook: bool = True,
+    auto_hook_style: str = "classic",
+    captions: bool = True,
+    ai_provider: Optional[str] = None,
+    ai_model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    user_id: Optional[Any] = None,
+    priority: int = 2,
+    reservation_id: Optional[str] = None,
+    user_plan: Optional[str] = None,
+    partial: Optional[Any] = None,
+    webhook_url: Optional[str] = None,
+    webhook_secret: Optional[str] = None,
+    api_base: str = "",
+    via_api_key: bool = False,
+    lane: Any = None,
+    topup: bool = False,
+    attestation: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """Internal programmatically accessible job creation for the existing pipeline."""
+    if not url and not input_path:
+        raise ValueError("Must provide either url or input_path.")
+
+    if url:
+        await _validate_source_url(url)
+
+    job_id = str(uuid.uuid4())
+    job_output_dir = os.path.join(OUTPUT_DIR, job_id)
+    _begin_job_dir(job_id)
+    os.makedirs(job_output_dir, exist_ok=True)
+
+    cmd = [_python_bin(), "-u", "main.py"]
+    env = child_env()
+    if api_key:
+        env["GEMINI_API_KEY"] = api_key
+    else:
+        env.pop("GEMINI_API_KEY", None)
+
+    active_p = ai_provider or ai_providers.get_active_provider_name()
+    if active_p:
+        env["LLM_PROVIDER"] = active_p
+    p_model = ai_model or ai_providers.get_provider_config(active_p).get("model")
+    if p_model:
+        env["ANTIGRAVITY_MODEL"] = p_model
+        env["LLM_MODEL"] = p_model
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    chosen = layout_env(layouts or [])
+    env.update(chosen)
+
+    if auto_hook:
+        env["AUTO_HOOK"] = "1"
+        from hooks import HOOK_STYLES
+        if auto_hook_style in HOOK_STYLES:
+            env["AUTO_HOOK_STYLE"] = auto_hook_style
+
+    if target_clips is not None:
+        env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(int(target_clips))
+    if clip_min_seconds is not None:
+        env["CLIP_MIN_SECONDS"] = str(int(clip_min_seconds))
+    if clip_max_seconds is not None:
+        env["CLIP_MAX_SECONDS"] = str(int(clip_max_seconds))
+    if creative_style:
+        env["CREATIVE_STYLE"] = str(creative_style).strip()
+    if avoid_ranges:
+        env["AVOID_TIME_RANGES"] = json.dumps(avoid_ranges)
+
+    if not captions:
+        env["AUTO_CAPTIONS"] = "0"
+
+    if url:
+        cmd.extend(["-u", url, "--keep-original"])
+    elif input_path:
+        cmd.extend(["-i", input_path])
+
+    cmd.extend(["-o", job_output_dir])
+    if output_format and output_format != "auto":
+        cmd.extend(["--format", output_format])
+
+    if user_plan == "free":
+        env["WATERMARK"] = "1"
+    _apply_rate_cap(env)
+
+    if attestation is None:
+        attestation = {
+            "acknowledged": True,
+            "ip": "127.0.0.1",
+            "user_agent": "OpenShorts-AI-Assistant",
+            "timestamp": time.time(),
+            "source": "assistant",
+        }
+
+    _end_submission(job_id)
+    jobs[job_id] = {
+        'status': 'queued',
+        'logs': _TimedLog([f"Job {job_id} queued by AI Assistant."]),
+        'cmd': cmd,
+        'env': env,
+        'output_dir': job_output_dir,
+        'attestation': attestation,
+        'user_id': user_id,
+        'reservation_id': reservation_id,
+        'watermark': env.get("WATERMARK") == "1",
+        'partial': partial,
+        'webhook_url': webhook_url,
+        'webhook_secret': webhook_secret,
+        'base_url': api_base,
+        'user_plan': user_plan,
+        'via_api_key': via_api_key,
+        'lane': lane or getattr(_queue_mode, "NORMAL", "normal"),
+        'submitted_at': _arrival_now(),
+        'topup': topup,
+    }
+    _end_job_dir(job_id)
+
+    _write_resume_manifest(job_id, cmd, priority, user_id, reservation_id,
+                           watermark=jobs[job_id]['watermark'],
+                           webhook_url=webhook_url, webhook_secret=webhook_secret,
+                           base_url=api_base, partial=partial,
+                           via_api_key=via_api_key,
+                           lane=jobs[job_id]['lane'], submitted_at=jobs[job_id]['submitted_at'],
+                           topup=topup)
+
+    _enqueue_job(job_id, priority)
+    return {"job_id": job_id, "status": "queued", "partial": partial}
+
+
+class AssistantChatRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    message: str
+
+
+class AssistantCreateConvRequest(BaseModel):
+    title: Optional[str] = "Nueva conversación"
+
+
+@app.get("/api/assistant/conversations")
+async def assistant_get_conversations():
+    import db_local
+    return {"conversations": db_local.list_conversations()}
+
+
+@app.post("/api/assistant/conversations")
+async def assistant_create_conversation(payload: AssistantCreateConvRequest):
+    import db_local
+    conv = db_local.create_conversation(title=payload.title or "Nueva conversación")
+    return {"conversation": conv}
+
+
+@app.get("/api/assistant/conversations/{conversation_id}")
+async def assistant_get_conversation(conversation_id: str):
+    import db_local
+    data = db_local.get_conversation_with_messages(conversation_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    tasks = db_local.get_tasks_for_conversation(conversation_id)
+    for t in tasks:
+        if t.get("job_id"):
+            st = get_job_status_internal(t["job_id"])
+            if st:
+                t["live_job"] = st
+    data["tasks"] = tasks
+    return data
+
+
+@app.delete("/api/assistant/conversations/{conversation_id}")
+async def assistant_delete_conversation(conversation_id: str):
+    import db_local
+    ok = db_local.delete_conversation(conversation_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"deleted": True, "conversation_id": conversation_id}
+
+
+@app.post("/api/assistant/chat")
+async def assistant_chat(payload: AssistantChatRequest):
+    import agent_orchestrator
+    import db_local
+    conv_id = payload.conversation_id
+    if not conv_id:
+        first_words = (payload.message[:35] + "...") if len(payload.message) > 35 else payload.message
+        conv = db_local.create_conversation(title=first_words or "Nueva conversación")
+        conv_id = conv["id"]
+
+    try:
+        result = await agent_orchestrator.process_chat_turn(conv_id, payload.message)
+    except Exception as e:
+        print(f"⚠️ Error in assistant chat: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = result.get("task")
+    if task and task.get("job_id"):
+        st = get_job_status_internal(task["job_id"])
+        if st:
+            task["live_job"] = st
+
+    return result
+
+
+@app.get("/api/assistant/tasks/{task_id}")
+async def assistant_get_task(task_id: str):
+    import db_local
+    task = db_local.get_assistant_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.get("job_id"):
+        st = get_job_status_internal(task["job_id"])
+        if st:
+            task["live_job"] = st
+    return {"task": task}
+
+
+def modify_job_internal(job_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
+    """Modify parameters of a queued job before it starts processing."""
+    job = jobs.get(job_id)
+    if job is None:
+        job = _job_view_from_disk(job_id)
+    if job is None:
+        return {"success": False, "found": False, "message": f"No se encontró el trabajo '{job_id}'."}
+
+    current_status = _presented_status(job_id, job)
+    if current_status != "queued":
+        return {
+            "success": False,
+            "found": True,
+            "job_id": job_id,
+            "status": current_status,
+            "message": f"El trabajo '{job_id}' se encuentra en estado '{current_status}' y no puede ser alterado en caliente. Para aplicar estos cambios a un vídeo que ya está en procesamiento o finalizado, generaremos un nuevo trabajo a partir de la misma fuente."
+        }
+
+    env = job.get("env", {})
+    if "creative_style" in changes and changes["creative_style"]:
+        env["CREATIVE_STYLE"] = str(changes["creative_style"]).strip()
+    if "target_clips" in changes and changes["target_clips"]:
+        try:
+            n = int(changes["target_clips"])
+            env["CLIP_TARGET_MIN"] = env["CLIP_TARGET_MAX"] = str(n)
+        except (ValueError, TypeError):
+            pass
+    if "clip_min_seconds" in changes and changes["clip_min_seconds"]:
+        env["CLIP_MIN_SECONDS"] = str(int(changes["clip_min_seconds"]))
+    if "clip_max_seconds" in changes and changes["clip_max_seconds"]:
+        env["CLIP_MAX_SECONDS"] = str(int(changes["clip_max_seconds"]))
+    if "auto_hook" in changes and changes["auto_hook"] is not None:
+        if bool(changes["auto_hook"]):
+            env["AUTO_HOOK"] = "1"
+        else:
+            env.pop("AUTO_HOOK", None)
+
+    job["env"] = env
+    try:
+        job["logs"].append(f"Parámetros actualizados por AI Assistant: {list(changes.keys())}")
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "found": True,
+        "job_id": job_id,
+        "status": "queued",
+        "message": f"Parámetros del trabajo '{job_id}' actualizados con éxito en cola de espera."
+    }
+
+
+@app.get("/api/assistant/jobs/{job_id}/status")
+async def assistant_get_job_status(job_id: str):
+    st = get_job_status_internal(job_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return st
+
+
+class AssistantContextUpdateRequest(BaseModel):
+    context: Dict[str, Any]
+
+
+@app.get("/api/assistant/conversations/{conversation_id}/context")
+async def assistant_get_context(conversation_id: str):
+    import db_local
+    return {"context": db_local.get_conversation_context(conversation_id)}
+
+
+@app.post("/api/assistant/conversations/{conversation_id}/context")
+async def assistant_update_context(conversation_id: str, payload: AssistantContextUpdateRequest):
+    import db_local
+    db_local.update_conversation_context(conversation_id, payload.context)
+    return {"context": db_local.get_conversation_context(conversation_id)}
+
+
+# Mount compiled frontend dashboard if present so localhost:8000 serves the full UI
+_dist_dir = os.path.join(os.path.dirname(__file__), "dashboard", "dist")
+if os.path.isdir(_dist_dir):
+    app.mount("/", StaticFiles(directory=_dist_dir, html=True), name="frontend")
+

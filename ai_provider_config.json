@@ -1,0 +1,12 @@
+{
+  "active_provider": "antigravity",
+  "providers": {
+    "ollama": {
+      "base_url": "http://localhost:11434/v1",
+      "model": "test-model"
+    },
+    "antigravity": {
+      "model": "gemini-3.8-flash-high"
+    }
+  }
+}

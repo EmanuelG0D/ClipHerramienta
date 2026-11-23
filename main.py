@@ -9,17 +9,37 @@ import contextlib
 import threading
 import unicodedata
 import uuid
+
+# Compatibility patch for PyAV 14+ with faster-whisper (removes deprecated metadata_errors arg)
+try:
+    import av
+    _orig_av_open = av.open
+    def _safe_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
+    av.open = _safe_av_open
+except Exception:
+    pass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
-from ultralytics import YOLO
-import torch
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
+try:
+    import torch
+except ImportError:
+    torch = None
 import os
 import math
 import numpy as np
 from tqdm import tqdm
 import yt_dlp
-import mediapipe as mp
+try:
+    import mediapipe as mp
+except ImportError:
+    mp = None
 # import whisper (replaced by faster_whisper inside function)
 from google import genai
 from google.genai import types as genai_types
@@ -82,7 +102,10 @@ OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by pre
     {{
       "start": <number in seconds, e.g., 12.340>,
       "end": <number in seconds, e.g., 37.900>,
-      "video_description_for_tiktok": "<description for TikTok oriented to get views>",
+      "video_title_for_facebook": "<engaging title for Facebook Reels max 80 chars>",
+      "video_description_for_facebook": "<post caption for Facebook with question/CTA and hashtags>",
+      "video_title_for_tiktok": "<short punchy title or POV hook for TikTok max 60 chars>",
+      "video_description_for_tiktok": "<description for TikTok with trending hashtags>",
       "video_description_for_instagram": "<description for Instagram oriented to get views>",
       "video_title_for_youtube_short": "<title for YouTube Short oriented to get views 100 chars max>",
       "viral_hook_text": "<SHORT punchy text overlay (max 10 words) with 1-2 fitting emojis. MUST BE IN THE SAME LANGUAGE AS THE VIDEO TRANSCRIPT. Examples: 'POV: You realized... 😳', 'Did you know? 🤯', 'Stop doing this! 🚫'>"
@@ -94,12 +117,26 @@ OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by pre
 # Load the YOLO model once (Keep for backup or scene analysis if needed)
 # YOLO_MODEL_PATH lets deployments point at a pre-downloaded weights file so a
 # volume mounted over the workdir doesn't trigger a re-download at startup.
-model = YOLO(os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"))
+if YOLO:
+    try:
+        model = YOLO(os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"))
+    except Exception:
+        model = None
+else:
+    model = None
 
 # --- MediaPipe Setup ---
 # Use standard Face Detection (BlazeFace) for speed
-mp_face_detection = mp.solutions.face_detection
-face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+if mp and hasattr(mp, "solutions") and hasattr(mp.solutions, "face_detection"):
+    try:
+        mp_face_detection = mp.solutions.face_detection
+        face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+    except Exception:
+        mp_face_detection = None
+        face_detection = None
+else:
+    mp_face_detection = None
+    face_detection = None
 
 # Consecutive detections a large target move must survive before the camera
 # follows it (see SmoothedCameraman.update_target). Env-overridable so the
@@ -442,6 +479,8 @@ def detect_face_candidates(frame):
     Boxes are in ORIGINAL frame coordinates (detection runs downscaled;
     MediaPipe's relative coords make the mapping exact).
     """
+    if not face_detection:
+        return []
     height, width, _ = frame.shape
     small, _scale = _detection_frame(frame)
     rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
@@ -473,6 +512,8 @@ def detect_person_yolo(frame):
     Returns [x, y, w, h] of the person's 'upper body' approximation, in
     ORIGINAL frame coordinates (inference runs on a downscaled copy).
     """
+    if not model:
+        return None
     small, scale = _detection_frame(frame)
     # Use the globally loaded model
     with DETECT_LOCK:
@@ -1002,8 +1043,8 @@ def _download_youtube_video(url, output_dir=".", on_audio=None, allow_paid=True,
             return ('bestvideo[vcodec^=avc1][height<=720][ext=mp4]+bestaudio[ext=m4a]/'
                     'bestvideo[vcodec^=avc1][height<=720]+bestaudio/'
                     'best[height<=720][ext=mp4]/best[height<=720]/best')
-        return ('bestvideo[vcodec^=avc1][height<=1080][ext=mp4]+bestaudio[ext=m4a]/'
-                'bestvideo[vcodec^=avc1][height<=1080]+bestaudio/'
+        return ('bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/'
+                'bestvideo[height<=1080]+bestaudio/'
                 'best[height<=1080][ext=mp4]/best[ext=mp4]/best')
 
     def _base_opts(extractor_args, proxy, cookies=True):
@@ -1014,6 +1055,8 @@ def _download_youtube_video(url, output_dir=".", on_audio=None, allow_paid=True,
             # "Download completed" line, errors and retries still print.
             'noprogress': True,
             'cookiefile': cookies_path if (cookies and cookies_path) else None,
+            'js_runtimes': {'node': {}},
+            'remote_components': {'ejs:github'},
             'proxy': proxy, 'socket_timeout': 30, 'retries': 10, 'fragment_retries': 10,
             'nocheckcertificate': True, 'cachedir': False,
             # A `watch?v=X&list=...` link is the one video the user was
@@ -1119,8 +1162,11 @@ def _download_youtube_video(url, output_dir=".", on_audio=None, allow_paid=True,
         # download of a source a bit over the cap takes seconds. A 21-min video
         # on a 19-min cap took 8 min ranged against ~30 s whole (prod,
         # 25-sep-2026); a finished 6.7 h livestream is ~13 GB whole.
+        _start_sec = max(0.0, float(os.environ.get("SOURCE_START_SECONDS", "0") or 0))
         ranged = False
-        if _range_cap:
+        if _range_cap or _start_sec > 0:
+            ranged = True
+        elif _range_cap:
             _dur = info.get('duration')
             ranged = not _dur or float(_dur) > max(3 * _range_cap, _range_cap + 2700)
         # Once per download, and not on the per-GB proxy (that is paid bytes,
@@ -1144,14 +1190,22 @@ def _download_youtube_video(url, output_dir=".", on_audio=None, allow_paid=True,
         _dl_bytes["ranged"] = ranged
         if ranged:
             from yt_dlp.utils import download_range_func
-            dl_opts['download_ranges'] = download_range_func(None, [(0, _range_cap)])
-            print(f"✂️ Source is {'of unknown length' if not info.get('duration') else 'longer than the paid minutes'}"
-                  f": downloading only the first {_range_cap / 60:.0f} min.")
+            _start_sec = max(0.0, float(os.environ.get("SOURCE_START_SECONDS", "0") or 0))
+            end_cap = _range_cap if _range_cap else None
+            dl_opts['download_ranges'] = download_range_func(None, [(_start_sec, end_cap)])
+            print(f"✂️ Descargando sección seleccionada del vídeo: desde {_start_sec / 60:.1f} min hasta "
+                  f"{('final' if not end_cap else f'{end_cap / 60:.1f} min')}.")
         with yt_dlp.YoutubeDL(dl_opts) as ydl:
             if info.get('_type', 'video') == 'video' and info.get('formats'):
                 ydl.process_ie_result(info, download=True)
             else:
                 ydl.download([url])
+        if ranged and _start_sec > 0 and os.path.exists(expected):
+            try:
+                with open(f"{expected}.range", "w") as f:
+                    json.dump(_file_stamp(expected), f)
+            except OSError:
+                pass
         return sanitized
 
     # DIRECT_FIRST=1: try the server's own IP before spending proxy bandwidth.
@@ -2251,7 +2305,7 @@ def score_batch_size():
     return 3 if llm_backend.active() else 8
 
 
-def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
+def get_viral_clips(transcript_result, video_duration, viewer_clips=None, video_title=None):
     """Two-pass clip selection: score transcript windows, then detail the best.
 
     Windowing gives even coverage on long videos (a single call over the whole
@@ -2265,10 +2319,14 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
     """
     language = str(transcript_result.get('language') or 'unknown')
     if llm_backend.active():
-        # Self-hosted text model: no Google key needed for this stage.
+        # Antigravity ACP or self-hosted model: no paid Google API key needed for this stage.
         client = None
         model_name = llm_backend.model_name()
-        print(f"\U0001f916  Analyzing with local LLM at {llm_backend.base_url()} (2-pass: score → detail)...")
+        p_name = llm_backend.provider()
+        if p_name == "antigravity":
+            print(f"🤖  Analyzing with Google Antigravity ACP (2-pass: score → detail)...")
+        else:
+            print(f"🤖  Analyzing with {p_name.upper()} at {llm_backend.base_url()} (2-pass: score → detail)...")
     else:
         print("\U0001f916  Analyzing with Gemini (2-pass: score → detail)...")
         api_key = os.getenv("GEMINI_API_KEY")
@@ -2314,10 +2372,16 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
         if heat:
             print(f"   👀 Viewer clips fall in {len(heat)} window(s).")
 
+        _SAFETY_MASK_RE = re.compile(
+            r"\b(chupado\s+culo|culo|pil[ií]n|pito|me\s+la\s+jalo|la\s+jalo|cagados?|calzones\s+cagados?|chingad[ao]|pendej[ao]s?|verg[ao]s?|put[ao]s?|mamad[ao]s?)\b",
+            re.IGNORECASE
+        )
+
         def _payload(ws):
             out = []
             for w in ws:
-                item = {"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]}
+                safe_text = _SAFETY_MASK_RE.sub("[censurado]", w["text"])
+                item = {"id": w["id"], "start": w["start"], "end": w["end"], "text": safe_text}
                 h = heat.get(w["id"])
                 if h:
                     item["viewers_clipped"] = h["clips"]
@@ -2327,9 +2391,13 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
             return out
 
         def _score_prompt(ws):
-            return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
+            prompt = gemini_worker.SCORE_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
                 windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+            creative_style = os.environ.get("CREATIVE_STYLE", "").strip()
+            if creative_style:
+                prompt += f"\nCREATIVE BIAS / STYLE FOCUS:\nPrioritize candidate moments that are strongly '{creative_style}'. Give bonus score (+15 to +25) to windows fitting this mood/style.\n"
+            return prompt
 
         for batch in score_batches(windows, SCORE_BATCH):
             scored.extend(_run_stage_split(
@@ -2359,11 +2427,20 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
             # A split batch keeps the full clip-count band: a short list can
             # still hold the best clips, and the model returns fewer anyway.
             def build(ws):
-                return gemini_worker.DETAIL_PROMPT_TEMPLATE.format(
+                prompt = gemini_worker.DETAIL_PROMPT_TEMPLATE.format(
                     video_duration=video_duration, language=language,
                     min_clips=lo, max_clips=hi,
                     min_secs=min_secs, max_secs=max_secs,
                     windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                creative_style = os.environ.get("CREATIVE_STYLE", "").strip()
+                avoid_ranges = os.environ.get("AVOID_TIME_RANGES", "").strip()
+                if video_title:
+                    prompt += f"\nSOURCE VIDEO TITLE / TOPIC:\n'{video_title}' — Use this context to choose the most trending, relevant keywords and hashtags (e.g. if the title mentions a specific franchise, game version like GTA 6, streamer, or topic, reflect those trending hashtags).\n"
+                if creative_style:
+                    prompt += f"\nCREATIVE STYLE INSTRUCTION:\nThe user requested clips specifically focused on: '{creative_style}'. Choose moments and craft hooks that highlight this mood/tone.\n"
+                if avoid_ranges:
+                    prompt += f"\nAVOID PREVIOUSLY CLIPPED INTERVALS:\nDo NOT select clips that significantly overlap with these previously generated time intervals: {avoid_ranges}.\n"
+                return prompt
             return build
 
         shorts = _run_stage_split(client, model_name, shortlist,
@@ -2728,11 +2805,15 @@ if __name__ == '__main__':
     def _report_job_cpu():
         """CPU time of the whole job (this process + every ffmpeg it waited
         for) for app.py's log, to compare pipeline versions per job."""
-        import resource
-        own = resource.getrusage(resource.RUSAGE_SELF)
-        kids = resource.getrusage(resource.RUSAGE_CHILDREN)
-        py_s = own.ru_utime + own.ru_stime
-        children_s = kids.ru_utime + kids.ru_stime
+        try:
+            import resource
+            own = resource.getrusage(resource.RUSAGE_SELF)
+            kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+            py_s = own.ru_utime + own.ru_stime
+            children_s = kids.ru_utime + kids.ru_stime
+        except (ImportError, AttributeError):
+            py_s = 0.0
+            children_s = 0.0
         # Where Parakeet ran (None: this job did not load it). A "cpu" here on
         # a GPU host means the image shipped onnxruntime without CUDA.
         asr = sys.modules.get("transcribe_backends")
@@ -3000,7 +3081,7 @@ if __name__ == '__main__':
             print("♻️ Using the clips Gemini picked while the video downloaded.")
             clips_data = early_clips
         elif transcript is not None:
-            clips_data = get_viral_clips(transcript, duration, viewer_clips=viewer_clips)
+            clips_data = get_viral_clips(transcript, duration, viewer_clips=viewer_clips, video_title=video_title)
         else:
             clips_data = get_visual_clips(input_video, duration, viewer_clips=viewer_clips)
 
@@ -3122,10 +3203,8 @@ if __name__ == '__main__':
                     if os.path.exists(clip_temp_path):
                         os.remove(clip_temp_path)
 
-            # 6, not 3: measured side by side on the GPU host at load 48-67, a 7-clip
-            # job finished 16% sooner with the same CPU, and the peak VRAM stayed
-            # at 12 GB of 20 (bench, 25-sep-2026).
-            clip_workers = max(int(os.environ.get("CLIP_WORKERS", "6")), 1)
+            # Default to 3 workers for balanced CPU core allocation on 4-8 thread CPUs (overridable via CLIP_WORKERS)
+            clip_workers = max(int(os.environ.get("CLIP_WORKERS", "3")), 1)
             shorts = clips_data['shorts']
             failed = []
             if os.environ.get("WATERMARK") == "1":

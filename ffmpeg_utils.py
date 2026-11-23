@@ -10,10 +10,17 @@ Only the codec/quality args live here; surrounding args (-movflags, -pix_fmt,
 audio codecs, filters) stay at each call site.
 """
 import os
+import sys
 import subprocess
 from fractions import Fraction
 import threading
 import time
+
+# Ensure Windows winget or local ffmpeg bin is discoverable in PATH
+if sys.platform == "win32":
+    winget_ffmpeg = os.path.expanduser(r"~\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build\bin")
+    if os.path.isdir(winget_ffmpeg) and winget_ffmpeg not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = winget_ffmpeg + os.pathsep + os.environ.get("PATH", "")
 
 # Quality tiers pinning the historical libx264 settings.
 QUALITY = "quality"            # was: -preset medium -crf 18
@@ -25,10 +32,10 @@ DELIVERY = "delivery"          # was: -preset fast -crf 22
 INTERMEDIATE = "intermediate"
 
 _X264_ARGS = {
-    QUALITY: ["-c:v", "libx264", "-preset", "medium", "-crf", "18"],
-    QUALITY_FAST: ["-c:v", "libx264", "-preset", "fast", "-crf", "18"],
-    DELIVERY: ["-c:v", "libx264", "-preset", "fast", "-crf", "22"],
-    INTERMEDIATE: ["-c:v", "libx264", "-preset", "fast", "-crf", "18"],
+    QUALITY: ["-c:v", "libx264", "-preset", "faster", "-crf", "17", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p"],
+    QUALITY_FAST: ["-c:v", "libx264", "-preset", "faster", "-crf", "17", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p"],
+    DELIVERY: ["-c:v", "libx264", "-preset", "faster", "-crf", "17", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p"],
+    INTERMEDIATE: ["-c:v", "libx264", "-preset", "faster", "-crf", "17", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p"],
 }
 
 # NVENC -cq is not 1:1 with x264 CRF: benchmarked on the prod GPU (RTX 4000
@@ -41,15 +48,27 @@ _X264_ARGS = {
 # OpenCV) nvenc otherwise emits H.264 in gbrp/GBR colorspace, which ffmpeg
 # reads fine but web players render as a magenta/green mess.
 _NVENC_ARGS = {
-    QUALITY: ["-c:v", "h264_nvenc", "-preset", "p3", "-tune", "hq",
-              "-rc", "vbr", "-cq", "25", "-b:v", "0",
+    QUALITY: ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "hq",
+              "-rc", "vbr", "-cq", "19", "-b:v", "0",
               "-spatial-aq", "1", "-temporal-aq", "1", "-pix_fmt", "yuv420p"],
-    QUALITY_FAST: ["-c:v", "h264_nvenc", "-preset", "p3", "-tune", "hq",
-                   "-rc", "vbr", "-cq", "25", "-b:v", "0", "-spatial-aq", "1",
+    QUALITY_FAST: ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "hq",
+                   "-rc", "vbr", "-cq", "19", "-b:v", "0", "-spatial-aq", "1",
                    "-pix_fmt", "yuv420p"],
-    DELIVERY: ["-c:v", "h264_nvenc", "-preset", "p3",
-               "-rc", "vbr", "-cq", "29", "-b:v", "0", "-spatial-aq", "1",
+    DELIVERY: ["-c:v", "h264_nvenc", "-preset", "p4",
+               "-rc", "vbr", "-cq", "19", "-b:v", "0", "-spatial-aq", "1",
                "-pix_fmt", "yuv420p"],
+}
+
+# MediaFoundation (Windows AMD / Intel hardware MFT) arguments.
+# -hw_encoding 1 enforces hardware acceleration on AMD Vega/Radeon or Intel QuickSync.
+# Increased to 14M-18M high-bitrate delivery for pristine short-form quality on TikTok/Reels/Shorts.
+# nv12 is the hardware-native pixel format supported by AMDh264Encoder; FFmpeg
+# swscale automatically converts RGB/BGR pipes and 4:2:0 inputs to nv12.
+_MF_ARGS = {
+    QUALITY: ["-c:v", "h264_mf", "-hw_encoding", "1", "-b:v", "16M", "-maxrate", "20M", "-pix_fmt", "nv12"],
+    QUALITY_FAST: ["-c:v", "h264_mf", "-hw_encoding", "1", "-b:v", "14M", "-maxrate", "18M", "-pix_fmt", "nv12"],
+    DELIVERY: ["-c:v", "h264_mf", "-hw_encoding", "1", "-b:v", "14M", "-maxrate", "18M", "-pix_fmt", "nv12"],
+    INTERMEDIATE: ["-c:v", "h264_mf", "-hw_encoding", "1", "-b:v", "12M", "-maxrate", "16M", "-pix_fmt", "nv12"],
 }
 
 # Output args that drop container/stream metadata carried over from the source
@@ -152,6 +171,7 @@ def audio_encode_args():
 
 _probe_lock = threading.Lock()
 _nvenc_ok = None  # None = not probed yet
+_mf_ok = None     # None = not probed yet
 _announced = False
 
 
@@ -189,11 +209,45 @@ def nvenc_available():
     return _nvenc_ok
 
 
+def _probe_mf():
+    """One tiny lavfi encode to prove h264_mf hardware works end-to-end.
+
+    Forces hardware MFT (-hw_encoding 1) and verifies AMD/Intel HW encoder.
+    Any failure falls back to libx264.
+    """
+    if sys.platform != "win32":
+        return False
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
+        "-c:v", "h264_mf", "-hw_encoding", "1", "-pix_fmt", "nv12",
+        "-b:v", "1M", "-f", "null", "-",
+    ]
+    try:
+        result = subprocess.run(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def mf_available():
+    """Probe h264_mf hardware once and cache the verdict (thread-safe)."""
+    global _mf_ok
+    if _mf_ok is None:
+        with _probe_lock:
+            if _mf_ok is None:
+                _mf_ok = _probe_mf()
+    return _mf_ok
+
+
 def reset_encoder_cache():
     """Test hook: forget the cached probe result."""
-    global _nvenc_ok, _announced
+    global _nvenc_ok, _mf_ok, _announced
     with _probe_lock:
         _nvenc_ok = None
+        _mf_ok = None
         _announced = False
 
 
@@ -203,23 +257,38 @@ def video_encode_args(tier=QUALITY):
     if tier not in _X264_ARGS:
         raise ValueError(f"Unknown encode tier: {tier!r}")
 
-    mode = os.environ.get("FFMPEG_ENCODER", "x264").strip().lower()
+    mode = os.environ.get("FFMPEG_ENCODER", "auto").strip().lower()
     use_nvenc = False
+    use_mf = False
+
     if mode in ("nvenc", "auto"):
         use_nvenc = nvenc_available()
-        if mode == "nvenc" and not use_nvenc:
-            print("⚠️ [Encoder] FFMPEG_ENCODER=nvenc but h264_nvenc is not "
-                  "usable here — falling back to libx264")
+    if not use_nvenc and mode == "mf":
+        use_mf = mf_available()
+
+    if mode == "nvenc" and not use_nvenc:
+        print("⚠️ [Encoder] FFMPEG_ENCODER=nvenc but h264_nvenc is not "
+              "usable here — falling back to libx264")
+    elif mode == "mf" and not use_mf:
+        print("⚠️ [Encoder] FFMPEG_ENCODER=mf but h264_mf hardware is not "
+              "usable here — falling back to libx264")
 
     if not _announced:
         _announced = True
-        print(f"🎞️ [Encoder] video encoder: {'h264_nvenc' if use_nvenc else 'libx264'} "
-              f"(FFMPEG_ENCODER={mode})")
+        if use_nvenc:
+            chosen = "h264_nvenc"
+        elif use_mf:
+            chosen = "h264_mf (AMD Vega HW)"
+        else:
+            chosen = "libx264"
+        print(f"🎞️ [Encoder] video encoder: {chosen} (FFMPEG_ENCODER={mode})")
 
     if use_nvenc and tier == INTERMEDIATE:
         return _intermediate_nvenc_args()
     if use_nvenc:
         return list(_NVENC_ARGS[tier])
+    if use_mf:
+        return list(_MF_ARGS[tier])
     return _x264_with_preset(_X264_ARGS[tier])
 
 

@@ -574,17 +574,17 @@ export default function Landing({ onLaunchApp }) {
       <section className="hero-blueprint relative overflow-clip border-b border-rule pt-32 pb-20 px-6">
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-14 items-center">
           <div className="min-w-0">
-            <p className="eyebrow mb-6">00 · Free AI Clip Generator · Open Source</p>
+            <p className="eyebrow mb-6">00 · Creador de Clips con IA Gratis · Código Abierto</p>
 
             <h1 className="hero-h1 mb-6">
-              <span className="block">free ai clip maker:</span>{' '}
-              <span className="block">long video in,</span>{' '}
-              <span className="block"><em>viral shorts</em> out.</span>
+              <span className="block">creador de clips con ia:</span>{' '}
+              <span className="block">video largo entra,</span>{' '}
+              <span className="block"><em>shorts virales</em> salen.</span>
             </h1>
 
             <p className="hero-description text-muted max-w-2xl mb-8 leading-relaxed lowercase">
-              paste a youtube link or upload a podcast, stream or interview. the ai picks the 3 to 15 moments worth posting,
-              reframes them to 9:16 around the people talking, and burns in the captions. ready for tiktok, reels and shorts in minutes.
+              pega un enlace de youtube o sube un podcast, directo o entrevista. la ia elige los momentos más virales,
+              los encuadra a 9:16 siguiendo a las personas que hablan, y añade subtítulos automáticos. listos para tiktok, reels y shorts en minutos.
             </p>
 
             {/* The hero CTA is the product itself: paste a link and land in the
@@ -598,18 +598,18 @@ export default function Landing({ onLaunchApp }) {
                     type="url"
                     value={heroUrl}
                     onChange={(e) => setHeroUrl(e.target.value)}
-                    placeholder="paste a video link"
+                    placeholder="pega el enlace de un video"
                     className="input-field pl-11"
-                    aria-label="Video link"
+                    aria-label="Enlace de video"
                   />
                 </div>
                 <button type="submit" className="btn-primary whitespace-nowrap">
-                  get free clips
+                  generar clips gratis
                   <ArrowRight size={16} />
                 </button>
                 <button type="button" onClick={onLaunchApp} className="btn-ghost whitespace-nowrap">
                   <Upload size={16} />
-                  upload a file
+                  subir un archivo
                 </button>
               </div>
             </form>
@@ -618,9 +618,9 @@ export default function Landing({ onLaunchApp }) {
                 (a card) is the whole point of the free plan. */}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5 text-sm">
               <span className="badge-ok whitespace-nowrap">
-                <Check size={12} /> no credit card required
+                <Check size={12} /> 100% gratis y local (Google Antigravity ACP)
               </span>
-              <span className="text-muted lowercase">first video free (up to 60 min) · then 20 min every month</span>
+              <span className="text-muted lowercase">sin límites de tarjeta · clips verticales en 9:16 con subtítulos</span>
             </div>
 
             <p className="text-sm text-muted lowercase">

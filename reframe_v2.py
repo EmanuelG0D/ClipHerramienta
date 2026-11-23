@@ -540,18 +540,19 @@ def _run(cmd):
                    stderr=subprocess.PIPE, timeout=1800)
 
 
-def _run_segment(input_video, ss, dur, extra_inputs, graph, out_label, seg_path):
+def _run_segment(input_video, ss, dur, extra_inputs, graph, out_label, seg_path, fps=None):
     """Encode one scene. The clip is decoded on the card when it can
     (gpu_decode: the same frames, so the same segment) and on the CPU if that
     ffmpeg fails."""
     def build(on_gpu):
         on_gpu = on_gpu and gpu_decode.graph_ok(graph)
+        fps_args = ["-r", f"{float(fps):.3f}"] if fps else []
         return [
             "ffmpeg", "-y", "-loglevel", "error",
             "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}",
             *gpu_decode.input_args(on_gpu), "-i", input_video, *extra_inputs,
             "-filter_complex", gpu_decode.graph(graph, on_gpu), "-map", out_label,
-            *video_encode_args(QUALITY_FAST), "-an", seg_path,
+            *fps_args, *video_encode_args(QUALITY_FAST), "-an", seg_path,
         ]
 
     def runner(cmd):
@@ -615,7 +616,7 @@ def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
                 extra = ["-i", logo]
                 graph += ";" + m.watermark_filter(out_w, out_h, video="[v]", out="[vw]")
                 out_label = "[vw]"
-            _run_segment(input_video, ss, dur, extra, graph, out_label, seg_path)
+            _run_segment(input_video, ss, dur, extra, graph, out_label, seg_path, fps=fps)
             segments.append(seg_path)
 
         list_path = os.path.join(workdir, "concat.txt")
@@ -917,7 +918,7 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 graph = (
                     f"[0:v]sendcmd=f='{escape_filter_value(cmd_path)}',"
                     f"crop@c={init},"
-                    f"scale={out_w}:{out_h},setsar=1[v]"
+                    f"scale={out_w}:{out_h}:flags=lanczos,unsharp=3:3:0.4:3:3:0.0,setsar=1[v]"
                 )
             specs.append((ss, dur, graph, boxes))
 

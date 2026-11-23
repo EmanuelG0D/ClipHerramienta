@@ -1,10 +1,9 @@
-"""Text-only LLM backend for the moment picker: any OpenAI-compatible server.
+"""Text-only LLM backend for the moment picker: Google Antigravity ACP or any OpenAI-compatible server.
 
 Ollama, LM Studio, vLLM, llama.cpp's server, LocalAI and OpenRouter all speak
 ``POST {base}/chat/completions``. When ``LLM_BASE_URL`` is set (or
-``LLM_PROVIDER=openai``), the transcript scoring and detail passes in
-``main.get_viral_clips`` go here instead of Gemini, so a self-hosted install
-can run the whole pipeline without a Google key.
+``LLM_PROVIDER=openai``), or when Google Antigravity ACP is selected (``LLM_PROVIDER=antigravity``),
+the transcript scoring and detail passes in ``main.get_viral_clips`` run without requiring a paid Google key.
 
 What stays on Gemini, because it needs a model that can look at frames or a
 video file: the layout picker (``layout_picker.py``), the on-screen content
@@ -12,20 +11,12 @@ detector (``screencast_layout.py``) and the silent-video path
 (``main.get_visual_clips``). Without a Gemini key those degrade the way they
 already did: the first two return "none", the third fails the job with a clear
 message. Nothing in this module is imported by them.
-
-Structured output: the prompts already spell out the exact JSON shape, so a
-plain ``json_object`` mode is enough for most models. The request first asks
-for ``json_schema`` (Ollama, vLLM, llama.cpp and LM Studio enforce it); a
-server that rejects that field gets the same request again with
-``json_object``, then with no ``response_format`` at all. Whatever comes back
-is validated with the same pydantic model Gemini's ``response_schema`` uses,
-so ``main.py`` sees one shape regardless of provider.
 """
 from __future__ import annotations
 
 import json
 import os
-from typing import Optional, Tuple, Type
+from typing import Any, List, Optional, Tuple, Type
 
 import httpx
 from pydantic import BaseModel
@@ -35,13 +26,27 @@ DEFAULT_TIMEOUT = 600.0  # local models on CPU are slow; a scoring batch can tak
 
 
 def provider() -> str:
-    """``"openai"`` when a compatible endpoint is configured, else ``"gemini"``."""
+    """``"antigravity"``, ``"openai"`` when a compatible endpoint is configured, else ``"gemini"``."""
     explicit = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
-    if explicit in ("openai", "ollama", "local", "openai-compatible"):
+    if explicit in ("antigravity", "agy", "acp"):
+        return "antigravity"
+    if explicit in ("openai", "ollama", "local", "openai-compatible", "lmstudio"):
         return "openai"
     if explicit == "gemini":
         return "gemini"
-    return "openai" if base_url() else "gemini"
+    if base_url():
+        return "openai"
+
+    try:
+        import ai_providers
+        active_p = ai_providers.get_active_provider_name()
+        if active_p == "antigravity":
+            return "antigravity"
+        if active_p in ("ollama", "lmstudio"):
+            return "openai"
+        return active_p
+    except Exception:
+        return "gemini"
 
 
 def base_url() -> str:
@@ -49,18 +54,33 @@ def base_url() -> str:
 
 
 def model_name() -> str:
+    p = provider()
+    if p == "antigravity":
+        return (os.environ.get("ANTIGRAVITY_MODEL") or os.environ.get("LLM_MODEL") or "gemini-3.8-flash-high").strip()
     return (os.environ.get("LLM_MODEL") or "").strip() or DEFAULT_MODEL
 
 
 def active() -> bool:
-    """True when the moment picker should call the OpenAI-compatible server."""
-    return provider() == "openai" and bool(base_url())
+    """True when the moment picker should call Antigravity ACP or the OpenAI-compatible server."""
+    p = provider()
+    if p == "antigravity":
+        return True
+    if p == "openai":
+        return bool(base_url())
+    return False
 
 
 def describe() -> Optional[dict]:
     """What ``/api/config`` tells the dashboard, or ``None`` when inactive."""
     if not active():
         return None
+    p = provider()
+    if p == "antigravity":
+        try:
+            import ai_providers
+            return ai_providers.describe_for_dashboard()
+        except Exception:
+            return {"provider": "antigravity", "model": model_name()}
     return {"provider": "openai", "model": model_name(), "baseUrl": base_url()}
 
 
@@ -72,8 +92,6 @@ def _timeout() -> float:
 
 
 def _headers() -> dict:
-    # Ollama ignores the key but the OpenAI client convention (and vLLM with
-    # --api-key) wants the header present; "ollama" is the documented placeholder.
     key = (os.environ.get("LLM_API_KEY") or "ollama").strip()
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
@@ -104,10 +122,13 @@ def generate_json(prompt: str, schema: Type[BaseModel], model: Optional[str] = N
     """One chat completion that must come back as JSON matching ``schema``.
 
     Returns ``(parsed_dict, cost_analysis)`` in the exact shape
-    ``main._run_gemini_stage`` returns, so the caller does not branch on the
-    provider. Raises on HTTP errors, empty bodies and schema violations; the
-    retry policy lives in the caller, same as for Gemini.
+    ``main._run_gemini_stage`` returns.
     """
+    p = provider()
+    if p == "antigravity":
+        import antigravity_acp
+        return antigravity_acp.generate_json(prompt, schema, model=model or model_name())
+
     import gemini_worker  # local import: keeps this module free of the google SDK
 
     url = f"{base_url()}/chat/completions"
@@ -124,8 +145,6 @@ def generate_json(prompt: str, schema: Type[BaseModel], model: Optional[str] = N
                 body["response_format"] = fmt
             resp = client.post(url, json=body, headers=_headers())
             if fmt is not None and _is_format_rejection(resp):
-                # The server does not know this response_format flavour; the
-                # next loop iteration asks for a looser one.
                 last_rejection = resp.text[:200]
                 continue
             if resp.status_code >= 400:
@@ -145,9 +164,6 @@ def generate_json(prompt: str, schema: Type[BaseModel], model: Optional[str] = N
         if isinstance(text, list):  # some servers return content parts
             text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
     parsed = gemini_worker._parse_json_response_text(text)
-    # Validate against the same schema Gemini enforces server-side, so a
-    # local model that drops a field fails here with a readable error
-    # (retried by the caller) instead of deep inside the clip pipeline.
     validated = schema.model_validate(parsed).model_dump()
 
     usage = data.get("usage") or {}
@@ -161,5 +177,28 @@ def generate_json(prompt: str, schema: Type[BaseModel], model: Optional[str] = N
         "model": model,
         "price_estimated": False,
         "local": True,
+        "provider": "openai",
     }
     return validated, cost
+
+
+def generate_multimodal_json(
+    prompt: str,
+    schema: Type[BaseModel],
+    images: List[Any],
+    model: Optional[str] = None,
+) -> Tuple[dict, Optional[dict]]:
+    """Complete a multimodal reasoning turn and return (parsed_dict, cost_analysis).
+
+    Delegates to Antigravity ACP when provider is 'antigravity'.
+    Does not fall back silently to paid Gemini API.
+    """
+    p = provider()
+    if p == "antigravity":
+        import antigravity_acp
+        return antigravity_acp.generate_multimodal_json(prompt, schema, images=images, model=model or model_name())
+
+    raise NotImplementedError(
+        f"Multimodal inference via llm_backend is not supported for provider '{p}'. "
+        "Use Antigravity ACP (LLM_PROVIDER=antigravity)."
+    )

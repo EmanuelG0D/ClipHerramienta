@@ -190,6 +190,11 @@ def _detector():
     global _DETECTOR
     if _DETECTOR is None:
         import mediapipe as mp
+        # mediapipe >= 1.0 moved to a tasks-based API and dropped `solutions`.
+        # Fall back gracefully so the caller returns None and uses the default
+        # top-of-frame hook position without printing a noisy warning.
+        if not hasattr(mp, "solutions") or not hasattr(mp.solutions, "face_detection"):
+            raise ImportError("mediapipe.solutions.face_detection unavailable")
         # model_selection=1: the full-range model, so the small faces of a
         # GENERAL (blurred-backdrop) layout are found too.
         _DETECTOR = mp.solutions.face_detection.FaceDetection(

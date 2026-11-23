@@ -24,8 +24,12 @@ output/
 .idea/
 .vscode/
 
-# Secrets
+# Secrets & local credentials
 .env
+cookies.txt*
+*.db
+*.sqlite
+scratch/
 
 # Generated metadata
 *_metadata.json

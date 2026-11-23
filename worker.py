@@ -258,9 +258,18 @@ def run_job(job_id, claim):
         cmd = [sys.executable, "-u", "main.py", "-i", source, "-o", out_dir] + args
         log(f"{job_id}: rendering ({os.path.getsize(source) >> 20} MB source"
             f"{', transcript prepared' if prepared else ''})")
+        popen_kwargs = {}
+        if sys.platform != "win32" and NICE:
+            popen_kwargs["preexec_fn"] = (lambda: os.nice(NICE))
+        elif sys.platform == "win32":
+            try:
+                popen_kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS
+            except Exception:
+                pass
+
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 env=job_env(info.get("env")), cwd=os.getcwd(),
-                                preexec_fn=(lambda: os.nice(NICE)) if NICE else None)
+                                **popen_kwargs)
         uploader = Uploader(job_id, claim, out_dir, skip=[source])
         pending, lock = [], threading.Lock()
 

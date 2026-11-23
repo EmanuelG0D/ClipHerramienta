@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket } from 'lucide-react';
 import KeyInput from './components/KeyInput';
+import AiProviderSelector from './components/AiProviderSelector';
 import MediaInput from './components/MediaInput';
 import McpConnectCard from './components/McpConnectCard';
 import ResultCard from './components/ResultCard';
@@ -8,6 +9,7 @@ import ProcessingAnimation from './components/ProcessingAnimation';
 // import Gallery from './components/Gallery';
 import ThumbnailStudio from './components/ThumbnailStudio';
 import SaaShortsTab from './components/SaaShortsTab';
+import AiAssistantTab from './components/AiAssistantTab';
 import UGCGallery from './components/UGCGallery';
 import ScheduleWeekModal from './components/ScheduleWeekModal';
 import ClipEditor from './components/ClipEditor';
@@ -286,7 +288,7 @@ const pollJob = async (jobId) => {
 
 function App() {
   // Cloud auth/billing session (inert when billing is disabled).
-  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, loading: authLoading } = useAuth();
+  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, aiProvider, refreshConfig, loading: authLoading } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   // Free plan: "want the watermark off?" once per job, when the clips land.
@@ -936,10 +938,10 @@ function App() {
 
   // Hosted is paid-only (no BYOK core). Self-host uses BYOK keys.
   // `keysMissing` now means "self-host BYOK keys missing" — it never fires on hosted.
-  // A self-hosted server running the moment picker on a local LLM
-  // (LLM_BASE_URL) does not need a Gemini key for the core pipeline.
-  const geminiOk = !!apiKey || !!localLlm;
-  const keysMissing = !billingEnabled && (!geminiOk || !uploadPostKey);
+  // A self-hosted server running the moment picker on Antigravity ACP or a local LLM
+  // does not need a Gemini key for the core pipeline.
+  const geminiOk = !!apiKey || !!localLlm || !!aiProvider;
+  const keysMissing = !billingEnabled && !geminiOk;
   const needsPlan = billingEnabled && !isManaged;   // hosted, signed-out or no active plan/trial
 
   // Fresh sign-up: Clip Generator tutorial (AuthContext set os_show_clip_tutorial
@@ -1193,6 +1195,10 @@ function App() {
       // BYOK sends the Gemini header; managed users rely on the bearer token
       // that apiFetch attaches automatically.
       const headers = apiKey ? { 'X-Gemini-Key': apiKey } : {};
+      if (aiProvider?.provider) {
+        headers['X-AI-Provider'] = aiProvider.provider;
+        if (aiProvider.model) headers['X-AI-Model'] = aiProvider.model;
+      }
 
       // Advanced generation controls: only sent when the user set them, so the
       // default request stays byte-identical to the pre-feature one.
@@ -1359,21 +1365,46 @@ function App() {
     handleResetRef.current = handleReset;
   });
 
+  const handleViewJobInGenerator = async (targetJobId) => {
+    if (!targetJobId) return;
+    setJobId(targetJobId);
+    setStatus('processing');
+    try {
+      const data = await pollJob(targetJobId);
+      if (data.result) setResults(data.result);
+      if (data.logs) {
+        setLogs(data.logs);
+        setLogTimes(data.log_times || []);
+      }
+      if (data.status === 'completed' || data.status === 'complete') {
+        setStatus('complete');
+      } else if (data.status === 'failed' || data.status === 'error') {
+        setStatus('error');
+      } else {
+        setStatus('processing');
+      }
+    } catch (e) {
+      console.error("Error viewing job in generator:", e);
+    }
+    setActiveTab('dashboard');
+  };
+
   // --- UI Components ---
 
   // One nav definition drives all three surfaces: the desktop rail, the mobile
   // drawer, and the bottom tab bar. `short` is the tab-bar label — the full one
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
-    { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
+    { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Generador de Clips', short: 'clips', primary: true },
+    { id: 'assistant', ord: '02', icon: Bot, label: 'AI Assistant', short: 'asistente', isNew: true, primary: true },
     // Cloud only: it runs on the managed pipeline and the Upload-Post connection.
-    ...(billingEnabled ? [{ id: 'autopilot', ord: '02', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true }] : []),
-    { id: 'saasshorts', ord: '03', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
-    { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
-    { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
-    { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '07', icon: History, label: 'History', short: 'history' }] : []),
-    { id: 'settings', ord: '08', icon: Settings, label: 'Settings', short: 'settings' },
+    ...(billingEnabled ? [{ id: 'autopilot', ord: '03', icon: Rocket, label: 'Piloto Automático', short: 'piloto', isNew: true }] : []),
+    { id: 'saasshorts', ord: '04', icon: Sparkles, label: 'Shorts IA', short: 'shorts ia', byok: true, primary: true },
+    { id: 'ai-agent', ord: '05', icon: Terminal, label: 'Agente MCP', short: 'mcp', byok: true },
+    { id: 'ugc-gallery', ord: '06', icon: LayoutGrid, label: 'Galería UGC', short: 'galería', primary: true },
+    { id: 'thumbnails', ord: '07', icon: Image, label: 'Estudio YouTube', short: 'estudio', primary: true },
+    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '08', icon: History, label: 'Historial', short: 'historial' }] : []),
+    { id: 'settings', ord: '09', icon: Settings, label: 'Configuración', short: 'ajustes' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
 
@@ -1402,7 +1433,7 @@ function App() {
         className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
       >
         <Globe size={14} className="shrink-0" />
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>landing page</span>
+        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>página de inicio</span>
       </a>
       <a
         href="https://github.com/mutonby/openshorts"
@@ -1411,7 +1442,7 @@ function App() {
         className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
       >
         <svg height="14" viewBox="0 0 16 16" version="1.1" width="14" aria-hidden="true" fill="currentColor" className="shrink-0"><path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>open source</span>
+        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>código abierto</span>
       </a>
       {billingEnabled && (
         <a
@@ -1610,10 +1641,10 @@ function App() {
               <button
                 onClick={handleReset}
                 className="btn-quiet px-3 py-1.5 text-xs shrink-0"
-                aria-label="New Project"
+                aria-label="Nuevo Proyecto"
               >
                 <Plus size={14} />
-                <span className="hidden sm:inline">New Project</span>
+                <span className="hidden sm:inline">Nuevo Proyecto</span>
               </button>
             )}
           </div>
@@ -1807,7 +1838,11 @@ function App() {
                 </div>
               ) : (
                 <>
-              <KeyInput onKeySet={setApiKey} savedKey={apiKey} />
+              <AiProviderSelector
+                onProviderChanged={() => { if (refreshConfig) refreshConfig(); }}
+                savedGeminiKey={apiKey}
+                onKeySet={setApiKey}
+              />
 
               <div className="card p-4 sm:p-6 mt-8">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
@@ -1817,11 +1852,10 @@ function App() {
                     </div>
                     <h2 className="text-base font-medium text-ink lowercase">Social Integration</h2>
                   </div>
-                  <span className="badge-warn">Required</span>
+                  <span className="badge-ok">Opcional para publicar</span>
                 </div>
                 <p className="text-xs text-muted mb-6 leading-relaxed">
-                  Required to publish your clips to TikTok, Instagram Reels, and YouTube Shorts via <strong>Upload-Post</strong>.
-                  Includes a <strong>free tier</strong> (no credit card required).
+                  Opcional: Requerido solo si deseas publicar directamente a TikTok, Instagram Reels o YouTube Shorts desde la interfaz mediante <strong>Upload-Post</strong>. Los clips siempre se pueden descargar localmente de forma 100% gratuita.
                 </p>
                 <div className="space-y-4">
                   <label className="block text-sm text-muted">Upload-Post API Key</label>
@@ -1979,6 +2013,11 @@ function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* View: AI Assistant */}
+          {activeTab === 'assistant' && (
+            <AiAssistantTab onViewJobInGenerator={handleViewJobInGenerator} />
           )}
 
           {/* View: SaaS Shorts */}
@@ -2185,30 +2224,30 @@ function App() {
                   eyebrow, the display size and the gaps all shrink first. */}
               <div className="max-w-xl w-full text-center space-y-5 sm:space-y-8">
                 <div className="space-y-2.5 sm:space-y-4">
-                  <p className="eyebrow hidden sm:block">01 · CLIP GENERATOR</p>
+                  <p className="eyebrow hidden sm:block">01 · GENERADOR DE CLIPS</p>
                   <h1 className="font-display lowercase text-3xl sm:text-4xl md:text-5xl text-ink">
-                    Create Viral Shorts
+                    Crea Shorts Virales
                   </h1>
                   <p className="text-muted text-[15px] sm:text-lg leading-snug sm:leading-normal max-w-sm sm:max-w-none mx-auto">
-                    Drop your long-form video below to instantly generate viral clips with AI.
+                    Pega el enlace o sube tu video largo para generar clips virales con IA al instante.
                   </p>
                   {/* The same pipeline is an MCP server: point people at the
                       one place that explains how to drive it from an agent. */}
                   {!tutorialLock && (
                   <p className="text-xs text-muted">
-                    Or let an agent do it:{' '}
+                    O usa un agente de IA:{' '}
                     <a
                       href={billingEnabled ? '#/account' : '#app'}
                       onClick={(e) => { if (!billingEnabled) { e.preventDefault(); goToTab('settings'); } }}
                       className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors"
                     >
-                      connect Claude, ChatGPT or n8n →
+                      conectar Claude, ChatGPT o n8n →
                     </a>
                   </p>
                   )}
                 </div>
 
-                <MediaInput onProcess={handleProcess} isProcessing={status === 'processing'} />
+                <MediaInput onProcess={handleProcess} isProcessing={status === 'processing'} onViewJob={handleViewJobInGenerator} />
 
                 <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-muted text-xs sm:text-sm">
                   <span className="flex items-center gap-2"><Youtube size={16} /> YouTube</span>
@@ -2229,13 +2268,13 @@ function App() {
                 <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
                   <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
                     <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
-                    Live Analysis
+                    Análisis en Vivo
                   </h2>
                   <span className={status === 'processing' ? 'badge-brass' :
                     status === 'complete' ? 'badge-ok' :
                       'badge-danger'
                     }>
-                    {status.toUpperCase()}
+                    {status === 'processing' ? 'PROCESANDO' : status === 'complete' ? 'COMPLETADO' : 'ERROR'}
                   </span>
                 </div>
 
@@ -2335,7 +2374,7 @@ function App() {
                     className="w-full px-3.5 sm:px-4 py-2.5 border-b border-rule flex items-center justify-between gap-2 bg-paper2 shrink-0 text-left"
                   >
                     <span className="readout flex items-center gap-2">
-                      <Terminal size={12} /> System Logs
+                      <Terminal size={12} /> Registros del Sistema
                     </span>
                     <span className="flex items-center gap-2 text-muted">
                       {!logsVisible && logs.length > 0 && (
@@ -2369,7 +2408,7 @@ function App() {
                     "schedule week" pill under the title on a phone. */}
                 <div className="mb-4 sm:mb-6 shrink-0 space-y-3">
                   <h2 className="font-display lowercase text-lg sm:text-xl text-ink flex flex-wrap items-center gap-2">
-                    <span className="mr-auto">Generated Shorts</span>
+                    <span className="mr-auto">Shorts Generados</span>
                     {results?.clips?.length > 0 && (
                       <span className="readout bg-paper3 px-2.5 py-1 rounded-full">
                         {results.clips.length} Clips
@@ -2387,11 +2426,11 @@ function App() {
                         onClick={handleDownloadAll}
                         disabled={downloadingAll}
                         className="btn-ghost px-3 py-2 text-xs"
-                        title="Download all clips as a ZIP"
+                        title="Descargar todos los clips en un archivo ZIP"
                       >
                         {downloadingAll
-                          ? <><Loader2 size={14} className="animate-spin" />zipping…</>
-                          : <><Download size={14} />download all</>}
+                          ? <><Loader2 size={14} className="animate-spin" />comprimiendo en zip…</>
+                          : <><Download size={14} />descargar todo</>}
                       </button>
                       {results.clips.length > 1 && (
                         <button
@@ -2399,7 +2438,7 @@ function App() {
                           className="btn-primary px-4 py-2 text-xs"
                         >
                           <Calendar size={14} />
-                          schedule week
+                          programar semana
                         </button>
                       )}
                     </div>
@@ -2564,14 +2603,14 @@ function App() {
                     status === 'processing' ? (
                       <div className="h-full min-h-[140px] flex flex-col items-center justify-center text-muted space-y-3 text-center px-4">
                         <Loader2 size={28} className="animate-spin text-brass" />
-                        <p className="text-sm lowercase">Waiting for clips...</p>
+                        <p className="text-sm lowercase">Esperando los clips...</p>
                         <p className="text-xs text-muted/80 max-w-[26ch] leading-snug">
-                          They appear here one by one as each finishes rendering.
+                          Aparecerán aquí uno a uno a medida que termine su renderizado.
                         </p>
                       </div>
                     ) : status === 'error' ? (
                       <div className="h-full min-h-[120px] flex flex-col items-center justify-center text-danger space-y-2">
-                        <p>Generation failed.</p>
+                        <p>La generación ha fallado.</p>
                       </div>
                     ) : null
                   )}

@@ -1,12 +1,13 @@
-# OpenShorts.app
+# OpenShorts.app + Google Antigravity ACP
 
-**The open-source OpusClip alternative.** Turn long videos into viral 9:16 Shorts, TikToks and Reels. Self-host free (MIT) or use the hosted cloud.
+**The open-source OpusClip alternative powered by Google Antigravity ACP.** Turn long videos into viral 9:16 Shorts, TikToks and Reels. Self-host free (MIT) using your authenticated Google Antigravity account (`agy acp`), local Ollama/LM Studio, or Gemini API.
 
 | | OpenShorts | OpusClip | Vizard | Klap |
 |---|---|---|---|---|
 | Open source | Yes (MIT) | No | No | No |
-| Self-hostable | Yes (Docker) | No | No | No |
+| Self-hostable | Yes (Docker / Native Windows) | No | No | No |
 | Free without watermark | Yes, self-hosted | No | No | No |
+| Zero-cost AI reasoning | Yes (via Antigravity ACP / Ollama) | No | No | No |
 | API + MCP server | Yes | API | API | API |
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -197,13 +198,26 @@ Self-hosting OpenShorts is free. You provide the machine and you only pay for th
 
 ---
 
+## Documentation & Guides (Quick Links)
+
+- **[INSTALL.md](INSTALL.md)**: Full step-by-step installation guide from scratch on Windows & Docker.
+- **[ANTIGRAVITY_SETUP.md](ANTIGRAVITY_SETUP.md)**: Google Antigravity ACP (`agy acp`) protocol, setup, and models guide.
+- **[CONFIGURATION.md](CONFIGURATION.md)**: Configuration guide for AI providers, local Whisper, and options.
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Troubleshooting common errors, connections, and FFmpeg setup.
+
+---
+
 ## Requirements
 
-- **Docker & Docker Compose**
-- **Google Gemini API Key** ([Free — get it here](https://aistudio.google.com/app/apikey)) — required for all AI features
-- **fal.ai API Key** ([Pay-per-use](https://fal.ai)) — required for AI Shorts (actor generation, video, lip-sync)
-- **ElevenLabs API Key** ([Free tier](https://elevenlabs.io)) — required for voiceover/dubbing
-- **Upload-Post API Key** ([free tier](https://upload-post.com)) — required for direct social posting
+- **Python 3.10+ & Node.js 18+** (for Windows native) or **Docker & Docker Compose**
+- **FFmpeg & FFprobe** (installed on host or included in Docker)
+- **AI Provider (Pick ONE)**:
+  - **Google Antigravity CLI (`agy`) [Recommended]**: Free with your Google Antigravity account — **No Gemini API key needed!**
+  - **Google Gemini API**: Free tier available ([Get key here](https://aistudio.google.com/app/apikey))
+  - **Ollama / LM Studio**: 100% offline & local models (Llama 3.2, Mistral, Qwen)
+- **Optional Services (NOT required for clipping)**:
+  - **Upload-Post API Key**: For automatic multi-platform publishing (manual download is always free)
+  - **fal.ai & ElevenLabs Keys**: Only for AI Shorts UGC actor video generation
 
 ---
 

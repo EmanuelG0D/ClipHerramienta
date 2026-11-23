@@ -36,13 +36,14 @@ class DetailClipModel(BaseModel):
     end: float
     source_window_id: str
     predicted_score: int
+    video_title_for_facebook: str = ""
+    video_description_for_facebook: str = ""
+    video_title_for_tiktok: str = ""
     video_description_for_tiktok: str
+    video_title_for_instagram: str = ""
     video_description_for_instagram: str
     video_title_for_youtube_short: str
     viral_hook_text: str
-    # One sentence on what makes THIS moment a clip, shown under the score in
-    # the dashboard. Defaulted so a small local model that skips it does not
-    # fail schema validation and lose the clip.
     why: str = ""
 
 
@@ -57,7 +58,11 @@ class VisualClipModel(BaseModel):
     start: float
     end: float
     predicted_score: int
+    video_title_for_facebook: str = ""
+    video_description_for_facebook: str = ""
+    video_title_for_tiktok: str = ""
     video_description_for_tiktok: str
+    video_title_for_instagram: str = ""
     video_description_for_instagram: str
     video_title_for_youtube_short: str
     viral_hook_text: str
@@ -269,6 +274,9 @@ Rules:
   work with prior context score low.
 - Prefer windows with strong hooks, conflict, surprise, outrage, emotion,
   novelty, big numbers, or a clear payoff.
+- For Spanish/Latin American content ({language}): highly reward authentic humor,
+  spontaneous street/public reactions, awkward moments, shock/suspense, and
+  relatable colloquial storytelling.
 - A window may carry `viewers_clipped` / `viewer_clip_views`: the stream's own
   live viewers clipped that stretch themselves. That is strong evidence the
   moment lands even when the transcript looks thin (a chase, a crash, a scream),
@@ -334,6 +342,9 @@ HOOK PLAYBOOK — pick the strongest fitting pattern for `viral_hook_text` (max 
 - Story loop: "This one email almost ruined me."
 - POV / pattern interrupt: "POV: you finally understand it."
 (These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)
+- For Spanish ({language}): Use natural, high-converting Latin American / Spanish hooks
+  (e.g., "El momento exacto donde...", "No te vas a creer lo que pasó...", "POV: ...",
+  "Esto casi se sale de control", "¿Por qué nadie habla de esto?").
 - ABOUT THIS MOMENT, NOT THE VIDEO: the hook and the title name the concrete
   thing that happens inside this clip — the tool being set up, the action,
   the number, the claim, the name. A line that could sit on any clip of this
@@ -341,9 +352,18 @@ HOOK PLAYBOOK — pick the strongest fitting pattern for `viral_hook_text` (max 
   named, quote the clip's strongest sentence instead of summarising the topic.
 
 COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE ({language}):
-- Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
-  without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
-- `video_title_for_youtube_short`: max 100 chars, curiosity-driven, no fake claims.
+- FACEBOOK:
+  * `video_title_for_facebook`: Engaging, discussion-sparking headline for Facebook Reels / Watch (max 80 chars, with 1 fitting emoji).
+  * `video_description_for_facebook`: Conversational post caption with a relatable hook, an open question or CTA inviting comments/debate, and 2-4 targeted hashtags.
+- TIKTOK:
+  * `video_title_for_tiktok`: Ultra-catchy short title or POV hook for TikTok (max 60 chars).
+  * `video_description_for_tiktok`: 1-2 punchy lines that tease the payoff without spoiling it + 4-6 high-traffic, trending hashtags (e.g. #fyp #parati #gamingontiktok #viral, franchise tag).
+- INSTAGRAM:
+  * `video_title_for_instagram`: Ultra-catchy Reel headline / cover hook (max 60 chars).
+  * `video_description_for_instagram`: Engaging Instagram Reel caption with hook, CTA ("Guarda este reel / Sígueme para más"), and 5-8 targeted Instagram hashtags (e.g. #reels #reelsinstagram #gaming #gta6 #gta6clips #explorepage).
+- YOUTUBE:
+  * `video_title_for_youtube_short`: max 100 chars, curiosity-driven, no fake claims.
+- GAME ACCURACY: If the video or title mentions GTA 6, it is GTA 6 (Grand Theft Auto VI). NEVER use #gtav or GTA 5 tags. Always use #gta6, #gta6gameplay, #gta6clips, #gta6español, #grandtheftautovi.
 - `predicted_score`: honest 0-100 estimate of viral potential.
 - `why`: one sentence, max 20 words, naming what makes THIS moment worth a
   clip — the specific hook, claim, number or payoff, not the topic.
@@ -361,8 +381,12 @@ Return only:
       "end": <number>,
       "source_window_id": "<window id>",
       "predicted_score": <integer 0-100>,
-      "video_description_for_tiktok": "<description + hashtags>",
-      "video_description_for_instagram": "<description + hashtags>",
+      "video_title_for_facebook": "<title for Facebook Reels max 80 chars>",
+      "video_description_for_facebook": "<caption for Facebook with hook + question + hashtags>",
+      "video_title_for_tiktok": "<title/POV hook for TikTok max 60 chars>",
+      "video_description_for_tiktok": "<description + trending hashtags>",
+      "video_title_for_instagram": "<title/hook for Instagram Reels max 60 chars>",
+      "video_description_for_instagram": "<caption for Instagram Reels + hashtags>",
       "video_title_for_youtube_short": "<title max 100 chars>",
       "viral_hook_text": "<short overlay max 10 words>",
       "why": "<one sentence, max 20 words>"

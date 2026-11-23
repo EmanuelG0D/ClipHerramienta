@@ -29,6 +29,18 @@ import os
 import re
 import subprocess
 import sys
+
+# Compatibility patch for PyAV 14+ with faster-whisper (removes deprecated metadata_errors arg)
+try:
+    import av
+    _orig_av_open = av.open
+    def _safe_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
+    av.open = _safe_av_open
+except Exception:
+    pass
+import sys
 import tempfile
 import threading
 import time
@@ -180,11 +192,16 @@ def _get_whisper_model():
     if _whisper_force_cpu:
         cfg["device"] = "cpu"
         cfg["compute_type"] = "int8"
-    key = (cfg["model_size"], cfg["device"], cfg["compute_type"])
+    threads = cfg.get("cpu_threads", 4)
+    key = (cfg["model_size"], cfg["device"], cfg["compute_type"], threads)
     with _whisper_lock:
         if _whisper_model is None or _whisper_key != key:
             from faster_whisper import WhisperModel
-            _whisper_model = WhisperModel(key[0], device=key[1], compute_type=key[2])
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+            try:
+                _whisper_model = WhisperModel(key[0], device=key[1], compute_type=key[2], local_files_only=True, cpu_threads=threads, num_workers=1)
+            except Exception:
+                _whisper_model = WhisperModel(key[0], device=key[1], compute_type=key[2], cpu_threads=threads, num_workers=1)
             _whisper_key = key
     return _whisper_model, cfg["device"]
 

@@ -216,6 +216,46 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const [posting, setPosting] = useState(false);
     const [postResult, setPostResult] = useState(null);
     const [copied, setCopied] = useState(null);
+    const [browserPosting, setBrowserPosting] = useState(null);
+    const [browserMsg, setBrowserMsg] = useState(null);
+
+    const handleBrowserOpen = async (platform) => {
+        const title = platform === 'facebook' ? (clip.video_title_for_facebook || postTitle) : (platform === 'instagram' ? (clip.video_title_for_instagram || postTitle) : (clip.video_title_for_tiktok || postTitle));
+        const desc = platform === 'facebook' ? (clip.video_description_for_facebook || postDescription) : (platform === 'instagram' ? (clip.video_description_for_instagram || postDescription) : (clip.video_description_for_tiktok || postDescription));
+        const fullText = title ? `${title}\n\n${desc}` : desc;
+
+        // Copiar texto y hashtags al portapapeles de Windows por respaldo
+        try {
+            await navigator.clipboard.writeText(fullText);
+        } catch (_) {}
+
+        setBrowserPosting(platform);
+        setBrowserMsg('⏳ Subiendo video, procesando reel y publicando en Facebook... Espera unos 20-30 segundos.');
+        try {
+            const res = await apiFetch('/api/social/browser-open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    platform,
+                    video_url: clip.video_url,
+                    title,
+                    description: desc
+                })
+            });
+            const data = await res.json();
+            if (data.published) {
+                setBrowserMsg(`🎉 ¡REEL PUBLICADO CON ÉXITO! Ya está disponible en tu página de Facebook "Tu Viejo Confiable".`);
+            } else if (data.success) {
+                setBrowserMsg(`🚀 ${data.message || 'Video y texto procesados con éxito.'}`);
+            } else {
+                setBrowserMsg(`⚠️ Aviso: ${data.error || data.detail || 'No se pudo completar la publicación automática.'}`);
+            }
+        } catch (err) {
+            setBrowserMsg(`⚠️ Error: ${err.message}`);
+        } finally {
+            setBrowserPosting(null);
+        }
+    };
 
     const handleCopy = async (field, text) => {
         try {
@@ -948,30 +988,47 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 {/* Descriptions (compact) — full text lives in the modal */}
                 <div className="flex-1 min-h-0 space-y-2 mb-4">
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
-                        <span className="eyebrow shrink-0">YOUTUBE</span>
+                        <span className="eyebrow shrink-0 text-sky-400 font-bold">FACEBOOK</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                            {clip.video_title_for_facebook || clip.video_description_for_facebook || clip.video_title_for_youtube_short}
                         </p>
                         <button
-                            onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
-                            aria-label="copy youtube title"
+                            onClick={() => handleCopy('facebook', clip.video_title_for_facebook ? `${clip.video_title_for_facebook}\n\n${clip.video_description_for_facebook || ''}` : (clip.video_description_for_facebook || clip.video_description_for_tiktok))}
+                            aria-label="copy facebook text"
+                            title="Copiar texto para Facebook"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
-                            {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            {copied === 'facebook' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
                         </button>
                     </div>
 
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
-                        <span className="eyebrow shrink-0">TIKTOK · IG</span>
+                        <span className="eyebrow shrink-0 text-pink-400 font-bold">TIKTOK</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            {clip.video_title_for_tiktok ? `${clip.video_title_for_tiktok} — ` : ''}{clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
                         <button
-                            onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
-                            aria-label="copy caption"
+                            onClick={() => handleCopy('tiktok', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                            aria-label="copy tiktok text"
+                            title="Copiar texto para TikTok"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
-                            {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                            {copied === 'tiktok' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
+                        </button>
+                    </div>
+
+                    <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
+                        <span className="eyebrow shrink-0 text-purple-400 font-bold">INSTAGRAM</span>
+                        <p className="text-xs text-ink2 truncate flex-1 min-w-0">
+                            {clip.video_title_for_instagram ? `${clip.video_title_for_instagram} — ` : ''}{clip.video_description_for_instagram || clip.video_description_for_tiktok}
+                        </p>
+                        <button
+                            onClick={() => handleCopy('instagram', clip.video_description_for_instagram || clip.video_description_for_tiktok)}
+                            aria-label="copy instagram text"
+                            title="Copiar texto para Instagram"
+                            className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
+                        >
+                            {copied === 'instagram' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
                         </button>
                     </div>
 
@@ -979,7 +1036,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         onClick={() => setShowDescModal(true)}
                         className="w-full flex items-center justify-center gap-2 py-2 rounded-input border border-dashed border-rule text-xs lowercase text-muted hover:text-brass hover:border-rule2 transition-colors"
                     >
-                        <FileText size={14} /> view descriptions
+                        <FileText size={14} /> ver títulos y descripciones (fb, tiktok, ig)
                     </button>
                 </div>
 
@@ -1026,7 +1083,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             className={QUIET_BTN}
                         >
                             <Scissors size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                            edit clip
+                            editar clip
                         </button>
                     )}
 
@@ -1036,7 +1093,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             className={QUIET_BTN}
                         >
                             <Crosshair size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                            reframing
+                            reencuadre
                         </button>
                     )}
 
@@ -1044,7 +1101,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         <button
                             onClick={handleMode}
                             disabled={isSwitchingMode}
-                            title="Pro mode: tighter frame on the face, pauses cut, cinematic look. Recommended for podcasts and talking-head clips."
+                            title="Modo pro: encuadre cerrado, pausas recortadas. Recomendado para podcasts y entrevistas."
                             className={!isPro && clip.pro_suggested
                                 ? 'btn-primary flex-col gap-1 py-2.5 sm:py-2 px-1 text-[11px] leading-none rounded-input whitespace-nowrap'
                                 : QUIET_BTN}
@@ -1052,7 +1109,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             {isSwitchingMode
                                 ? <Loader2 size={16} className={`animate-spin shrink-0 ${!isPro && clip.pro_suggested ? '' : 'text-brass'}`} />
                                 : <Sparkles size={16} className={!isPro && clip.pro_suggested ? 'shrink-0' : `${isPro ? 'text-brass' : 'text-muted'} group-hover:text-brass transition-colors shrink-0`} />}
-                            {isSwitchingMode ? 'rendering…' : isPro ? 'normal mode' : 'pro mode'}
+                            {isSwitchingMode ? 'renderizando…' : isPro ? 'modo normal' : 'modo pro'}
                         </button>
                     )}
 
@@ -1062,7 +1119,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         className={QUIET_BTN}
                     >
                         {isEditing ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Wand2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isEditing ? 'editing…' : 'auto edit'}
+                        {isEditing ? 'editando…' : 'edición auto'}
                     </button>
 
                     <button
@@ -1071,7 +1128,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         className={QUIET_BTN}
                     >
                         {isSubtitling ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Type size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isSubtitling ? 'adding…' : 'subtitles'}
+                        {isSubtitling ? 'añadiendo…' : 'subtítulos'}
                     </button>
 
                     <button
@@ -1080,7 +1137,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         className={QUIET_BTN}
                     >
                         {isHooking ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Wand2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isHooking ? 'saving…' : 'edit hook'}
+                        {isHooking ? 'guardando…' : 'editar gancho'}
                     </button>
 
                     <button
@@ -1089,14 +1146,14 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         className={QUIET_BTN}
                     >
                         {isTranslating ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Languages size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
-                        {isTranslating ? 'translating…' : 'dub voice'}
+                        {isTranslating ? 'doblando…' : 'doblar voz'}
                     </button>
 
                     <button
                         onClick={() => setShowModal(true)}
                         className="btn-primary flex-col gap-1 py-2.5 sm:py-2 px-1 text-[11px] leading-none rounded-input whitespace-nowrap"
                     >
-                        <Share2 size={16} className="shrink-0" /> post
+                        <Share2 size={16} className="shrink-0" /> publicar
                     </button>
                     <button
                         onClick={(e) => {
@@ -1112,7 +1169,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         className={`${QUIET_BTN}${onEditClip ? ' col-span-2' : ''}`}
                     >
                         <Download size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
-                        {downloadPct === null ? 'download' : `downloading ${downloadPct}%`}
+                        {downloadPct === null ? 'descargar' : `descargando ${downloadPct}%`}
                     </button>
                 </div>
             </div>
@@ -1121,40 +1178,154 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             <Modal
                 isOpen={showDescModal}
                 onClose={() => setShowDescModal(false)}
-                eyebrow="GENERATED COPY"
-                title="descriptions"
+                eyebrow="TEXTOS VIRALES GENERADOS"
+                title="Títulos y Descripciones"
                 size="md"
             >
-                <div className="space-y-4">
+                <div className="space-y-5">
+                    {/* FACEBOOK SECTION */}
+                    <div className="border border-sky-500/20 bg-sky-950/10 rounded-input p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-sky-500/20 pb-2">
+                            <span className="text-xs font-bold text-sky-400 flex items-center gap-1.5 uppercase tracking-wide">
+                                📘 Facebook (Reels & Posts)
+                            </span>
+                            <button
+                                onClick={() => handleCopy('facebook_all', `${clip.video_title_for_facebook || clip.video_title_for_youtube_short}\n\n${clip.video_description_for_facebook || clip.video_description_for_tiktok || ''}`)}
+                                className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded bg-sky-500/10"
+                            >
+                                {copied === 'facebook_all' ? <Check size={12} className="text-ok" /> : <Copy size={12} />} copiar todo
+                            </button>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Título para Facebook</label>
+                                <button
+                                    onClick={() => handleCopy('fb_title', clip.video_title_for_facebook || clip.video_title_for_youtube_short || '')}
+                                    className="p-1 rounded text-muted hover:text-sky-400 transition-colors"
+                                >
+                                    {copied === 'fb_title' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule">
+                                {clip.video_title_for_facebook || clip.video_title_for_youtube_short || "Video Viral"}
+                            </p>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Descripción / Post para Facebook</label>
+                                <button
+                                    onClick={() => handleCopy('fb_desc', clip.video_description_for_facebook || clip.video_description_for_tiktok || '')}
+                                    className="p-1 rounded text-muted hover:text-sky-400 transition-colors"
+                                >
+                                    {copied === 'fb_desc' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule whitespace-pre-wrap">
+                                {clip.video_description_for_facebook || clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* TIKTOK SECTION */}
+                    <div className="border border-pink-500/20 bg-pink-950/10 rounded-input p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-pink-500/20 pb-2">
+                            <span className="text-xs font-bold text-pink-400 flex items-center gap-1.5 uppercase tracking-wide">
+                                🎵 TikTok
+                            </span>
+                            <button
+                                onClick={() => handleCopy('tiktok_all', `${clip.video_title_for_tiktok ? clip.video_title_for_tiktok + '\n\n' : ''}${clip.video_description_for_tiktok || clip.video_description_for_instagram || ''}`)}
+                                className="text-xs text-pink-400 hover:text-pink-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded bg-pink-500/10"
+                            >
+                                {copied === 'tiktok_all' ? <Check size={12} className="text-ok" /> : <Copy size={12} />} copiar todo
+                            </button>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Título / Gancho para TikTok</label>
+                                <button
+                                    onClick={() => handleCopy('tt_title', clip.video_title_for_tiktok || clip.viral_hook_text || clip.video_title_for_youtube_short || '')}
+                                    className="p-1 rounded text-muted hover:text-pink-400 transition-colors"
+                                >
+                                    {copied === 'tt_title' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule">
+                                {clip.video_title_for_tiktok || clip.viral_hook_text || clip.video_title_for_youtube_short || "Video Viral"}
+                            </p>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Descripción & Hashtags para TikTok</label>
+                                <button
+                                    onClick={() => handleCopy('tt_desc', clip.video_description_for_tiktok || clip.video_description_for_instagram || '')}
+                                    className="p-1 rounded text-muted hover:text-pink-400 transition-colors"
+                                >
+                                    {copied === 'tt_desc' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule whitespace-pre-wrap">
+                                {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* INSTAGRAM SECTION */}
+                    <div className="border border-purple-500/20 bg-purple-950/10 rounded-input p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-purple-500/20 pb-2">
+                            <span className="text-xs font-bold text-purple-400 flex items-center gap-1.5 uppercase tracking-wide">
+                                📸 Instagram (Reels)
+                            </span>
+                            <button
+                                onClick={() => handleCopy('ig_all', `${clip.video_title_for_instagram ? clip.video_title_for_instagram + '\n\n' : ''}${clip.video_description_for_instagram || clip.video_description_for_tiktok || ''}`)}
+                                className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1 transition-colors px-2 py-0.5 rounded bg-purple-500/10"
+                            >
+                                {copied === 'ig_all' ? <Check size={12} className="text-ok" /> : <Copy size={12} />} copiar todo
+                            </button>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Título / Gancho para Instagram</label>
+                                <button
+                                    onClick={() => handleCopy('ig_title', clip.video_title_for_instagram || clip.video_title_for_tiktok || clip.viral_hook_text || '')}
+                                    className="p-1 rounded text-muted hover:text-purple-400 transition-colors"
+                                >
+                                    {copied === 'ig_title' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule">
+                                {clip.video_title_for_instagram || clip.video_title_for_tiktok || clip.viral_hook_text || "Reel Viral"}
+                            </p>
+                        </div>
+                        <div>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <label className="text-[10px] text-muted uppercase font-semibold">Descripción & Hashtags para Instagram</label>
+                                <button
+                                    onClick={() => handleCopy('ig_desc', clip.video_description_for_instagram || clip.video_description_for_tiktok || '')}
+                                    className="p-1 rounded text-muted hover:text-purple-400 transition-colors"
+                                >
+                                    {copied === 'ig_desc' ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-ink2 select-all bg-paper rounded p-2 border border-rule whitespace-pre-wrap">
+                                {clip.video_description_for_instagram || clip.video_description_for_tiktok}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* YOUTUBE SECTION */}
                     <div>
                         <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="eyebrow">YOUTUBE TITLE</label>
+                            <label className="eyebrow">TÍTULO YOUTUBE SHORTS</label>
                             <button
                                 onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
-                                aria-label="copy youtube title"
+                                aria-label="copiar título de youtube"
                                 className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                             >
                                 {copied === 'youtube' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
                             </button>
                         </div>
-                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
+                        <p className="text-xs text-ink2 select-all break-words bg-paper rounded-input p-2.5 border border-rule">
                             {clip.video_title_for_youtube_short || "Viral Short Video"}
-                        </p>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="eyebrow">TIKTOK · IG CAPTION</label>
-                            <button
-                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
-                                aria-label="copy caption"
-                                className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
-                            >
-                                {copied === 'caption' ? <Check size={14} className="text-ok" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
                     </div>
                 </div>
@@ -1164,8 +1335,8 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             <Modal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
-                eyebrow="PUBLISH"
-                title="post clip"
+                eyebrow="PUBLICAR O PREPARAR"
+                title="Publicar en Redes Sociales"
                 size="md"
                 footer={
                     noAccountsConnected ? (
@@ -1183,6 +1354,49 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     )
                 }
             >
+                {/* CDP Browser Fast Publisher Section */}
+                <div className="p-3.5 mb-4 rounded-input border border-brass/40 bg-brass/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-brass uppercase tracking-wide flex items-center gap-1.5">
+                            ⚡ Publicar Automático en Redes (1 Clic)
+                        </span>
+                        <span className="text-[10px] text-muted">Sube el video y publica solo</span>
+                    </div>
+                    <p className="text-xs text-ink2">
+                        El bot toma el video, escribe el título y hashtags virales de GTA 6 y lo publica directamente en tu página:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                        <button
+                            type="button"
+                            disabled={browserPosting !== null}
+                            onClick={() => handleBrowserOpen('facebook')}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                            {browserPosting === 'facebook' ? <Loader2 size={13} className="animate-spin" /> : <span>📘 Facebook</span>}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={browserPosting !== null}
+                            onClick={() => handleBrowserOpen('instagram')}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                            {browserPosting === 'instagram' ? <Loader2 size={13} className="animate-spin" /> : <span>📸 Instagram</span>}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={browserPosting !== null}
+                            onClick={() => handleBrowserOpen('tiktok')}
+                            className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/30 text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                            {browserPosting === 'tiktok' ? <Loader2 size={13} className="animate-spin" /> : <span>🎵 TikTok</span>}
+                        </button>
+                    </div>
+                    {browserMsg && (
+                        <div className="text-xs p-2.5 rounded bg-paper border border-rule text-ink2">
+                            {browserMsg}
+                        </div>
+                    )}
+                </div>
                 {!canPost && (
                     <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
                         <AlertCircle size={14} className="mt-0.5 shrink-0" />

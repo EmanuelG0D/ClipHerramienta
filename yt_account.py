@@ -37,7 +37,18 @@ never frees, a clock that jumped: the request goes ahead as it always did.
 """
 import atexit
 import contextlib
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    class _FcntlShim:
+        LOCK_EX = 2
+        LOCK_SH = 1
+        LOCK_NB = 4
+        LOCK_UN = 8
+        @staticmethod
+        def flock(fd, operation):
+            pass
+    fcntl = _FcntlShim()
 import json
 import os
 import tempfile
@@ -282,14 +293,36 @@ def request(account=0):
 
 def accounts(env=None):
     """The cookie files configured, in order: YOUTUBE_COOKIES, then
-    YOUTUBE_COOKIES_2 .. _9. Empty ones are skipped."""
+    YOUTUBE_COOKIES_2 .. _9. Empty ones are skipped.
+    Supports raw Netscape cookie text or direct file paths to a cookies.txt file."""
     env = os.environ if env is None else env
     names = ["YOUTUBE_COOKIES"] + [f"YOUTUBE_COOKIES_{i}" for i in range(2, MAX_ACCOUNTS + 1)]
     out = []
     for name in names:
         text = str(env.get(name) or "").strip()
         if text:
+            # If text is a path to an existing cookies file, read its content
+            if os.path.isfile(text):
+                try:
+                    with open(text, "r", encoding="utf-8", errors="ignore") as f:
+                        text = f.read().strip()
+                except Exception:
+                    pass
             out.append(text + "\n")
+
+    # If no env var was provided, automatically check for a local cookies.txt in the workspace
+    if not out:
+        for candidate in ("cookies.txt", "cookies.txt.txt", "youtube_cookies.txt"):
+            p = os.path.join(os.getcwd(), candidate)
+            if os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read().strip()
+                        if content:
+                            out.append(content + "\n")
+                            break
+                except Exception:
+                    pass
     return out
 
 

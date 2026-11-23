@@ -224,8 +224,16 @@ export function AuthProvider({ children }) {
   const value = {
     billingEnabled: config.billingEnabled,
     localLlm: config.localLlm || null,
+    aiProvider: config.aiProvider || null,
     googleAuthEnabled: config.googleAuthEnabled,
     jobRetentionSeconds: config.jobRetentionSeconds || null,
+    refreshConfig: async () => {
+      try {
+        const cfg = await (await fetch(getApiUrl('/api/config'))).json();
+        setConfig(cfg);
+        return cfg;
+      } catch (_) { return null; }
+    },
     loading,
     signingIn,
     user: me?.user || null,

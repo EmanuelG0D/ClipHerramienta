@@ -38,7 +38,18 @@ Fail-open everywhere: any error means "not cached" and the job downloads as
 it always did.
 """
 import contextlib
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    class _FcntlShim:
+        LOCK_EX = 2
+        LOCK_SH = 1
+        LOCK_NB = 4
+        LOCK_UN = 8
+        @staticmethod
+        def flock(fd, operation):
+            pass
+    fcntl = _FcntlShim()
 import json
 import os
 import re

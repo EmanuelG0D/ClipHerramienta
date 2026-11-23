@@ -22,13 +22,15 @@ def get_whisper_config():
         "model_size": os.environ.get("WHISPER_MODEL", DEFAULT_WHISPER_MODEL),
         "device": os.environ.get("WHISPER_DEVICE", "cpu"),
         "compute_type": os.environ.get("WHISPER_COMPUTE", "int8"),
+        "cpu_threads": int(os.environ.get("WHISPER_THREADS", os.environ.get("WHISPER_CPU_THREADS", "4"))),
     }
 
 
 # Decode params shared by both transcription paths. condition_on_previous_text
 # is off to avoid repetition/hallucination loops; vad_filter drops silence.
+# beam_size=1 (greedy): 2-3x faster on CPU, same accuracy for clear Spanish audio.
 WHISPER_TRANSCRIBE_PARAMS = {
-    "beam_size": 5,
+    "beam_size": 1,
     "vad_filter": True,
     "condition_on_previous_text": False,
     "word_timestamps": True,

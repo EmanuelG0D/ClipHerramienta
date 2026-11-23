@@ -192,46 +192,67 @@ def sample_frames(video_path, n=None, width=None):
 
 
 def pick(video_path, video_duration):
-    """The layout Gemini picks for this video, or "none" on any failure.
+    """The layout picked for this video, or "none" on any failure.
+
+    Supports Google Antigravity ACP (multimodal) when LLM_PROVIDER=antigravity
+    without requiring a paid Gemini API key. Falls back to Gemini API only when
+    Antigravity is not selected and GEMINI_API_KEY is available.
 
     Never raises: a missing answer has to degrade to today's routing rather
     than break the job.
     """
     if not ENABLED:
         return "none"
+
+    import gemini_worker
+    import llm_backend
+
+    use_antigravity = llm_backend.active() and llm_backend.provider() == "antigravity"
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+
+    if not use_antigravity and not api_key:
         return "none"
 
-    model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
     print("🎛️  Choosing a layout for this video…")
-    try:
-        # Inside the try on purpose: the contract above is that this never
-        # raises, and an unimportable SDK is just one more reason to fall back.
-        from google import genai
-        from google.genai import types as genai_types
-        import gemini_worker
-
-        frames = sample_frames(video_path)
-        if not frames:
-            print("   ⚠️ No readable frames — keeping the default layout.")
-            return "none"
-
-        client = genai.Client(api_key=api_key)
-        parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg")
-                 for b in frames]
-        response = client.models.generate_content(
-            model=model_name,
-            contents=parts + [gemini_worker.LAYOUT_CHOICE_PROMPT],
-            config=genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=gemini_worker.LayoutChoice,
-            ))
-        gemini_worker.raise_if_blocked(response)
-        answer = json.loads(response.text) or {}
-    except Exception as e:
-        print(f"   ⚠️ Layout choice failed ({e}) — keeping the default layout.")
+    frames = sample_frames(video_path)
+    if not frames:
+        print("   ⚠️ No readable frames — keeping the default layout.")
         return "none"
+
+    answer = {}
+    if use_antigravity:
+        try:
+            print("   🤖 Analyzing video frames with Google Antigravity ACP...")
+            validated, cost = llm_backend.generate_multimodal_json(
+                gemini_worker.LAYOUT_CHOICE_PROMPT,
+                gemini_worker.LayoutChoice,
+                images=frames,
+            )
+            answer = validated
+        except Exception as e:
+            print(f"   ⚠️ Antigravity layout choice failed ({e}) — keeping the default layout.")
+            return "none"
+    else:
+        model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
+        try:
+            from google import genai
+            from google.genai import types as genai_types
+
+            client = genai.Client(api_key=api_key)
+            parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg")
+                     for b in frames]
+            response = client.models.generate_content(
+                model=model_name,
+                contents=parts + [gemini_worker.LAYOUT_CHOICE_PROMPT],
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=gemini_worker.LayoutChoice,
+                ))
+            gemini_worker.raise_if_blocked(response)
+            answer = json.loads(response.text) or {}
+        except Exception as e:
+            print(f"   ⚠️ Layout choice failed ({e}) — keeping the default layout.")
+            return "none"
 
     decision = str(answer.get("layout", "none")).strip().lower()
     if decision not in VALID:

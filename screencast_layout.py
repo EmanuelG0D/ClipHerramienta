@@ -149,8 +149,8 @@ def screencast_filtergraph(orig_w, orig_h, out_w, out_h, face_centre, content):
     return (
         f"[0:v]split=3[bga][ca][sa];"
         f"[bga]{blurred_backdrop(out_w, out_h, 14)}[bg];"
-        f"[ca]crop=w={cw_}:h={orig_h}:x={cx_}:y=0,scale={sw}:{sh}[content];"
-        f"[sa]crop=w={cw}:h={ch}:x={cx}:y={cy},scale={out_w}:{speaker_h}[speaker];"
+        f"[ca]crop=w={cw_}:h={orig_h}:x={cx_}:y=0,scale={sw}:{sh}:flags=lanczos[content];"
+        f"[sa]crop=w={cw}:h={ch}:x={cx}:y={cy},scale={out_w}:{speaker_h}:flags=lanczos[speaker];"
         f"[bg][content]overlay=x={(out_w - sw) // 2}:y=0[top];"
         f"[top][speaker]overlay=x=0:y={sh},setsar=1[v]"
     )
