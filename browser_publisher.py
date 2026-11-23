@@ -1,7 +1,8 @@
 import os
 import sys
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from datetime import datetime
 from pathlib import Path
 
 FB_PROFILE_PREFERRED = r"c:\Users\ehhig\Desktop\tv o algo asi\facebook_bot\fb_profile"
@@ -13,10 +14,16 @@ def get_profile_dir() -> str:
     os.makedirs(DEFAULT_PROFILE, exist_ok=True)
     return DEFAULT_PROFILE
 
-def publish_to_facebook(video_path: str, caption: str, auto_click_publish: bool = True) -> Dict[str, Any]:
+def publish_to_facebook(
+    video_path: str,
+    caption: str,
+    auto_click_publish: bool = True,
+    schedule_datetime: Optional[datetime] = None
+) -> Dict[str, Any]:
     """
-    Subida y publicación 100% automática en Meta Business Suite Reels Composer
+    Subida y publicación o programación 100% automática en Meta Business Suite Reels Composer
     usando la sesión autenticada de fb_profile.
+    Si schedule_datetime está presente, programa el Reel en la nube de Meta para esa fecha/hora.
     """
     profile_dir = get_profile_dir()
     abs_video_path = str(Path(video_path).resolve())
@@ -27,9 +34,12 @@ def publish_to_facebook(video_path: str, caption: str, auto_click_publish: bool 
     from playwright.sync_api import sync_playwright
 
     print(f"\n==================================================")
-    print(f"[*] Iniciando auto-publicador de Reels en Facebook...")
+    action_name = "Programador" if schedule_datetime else "Auto-publicador"
+    print(f"[*] Iniciando {action_name} de Reels en Facebook...")
     print(f"[*] Video: {abs_video_path}")
     print(f"[*] Perfil: {profile_dir}")
+    if schedule_datetime:
+        print(f"[*] Fecha y hora programada: {schedule_datetime.strftime('%Y-%m-%d %H:%M')}")
     print(f"==================================================\n", flush=True)
 
     try:
@@ -125,77 +135,152 @@ def publish_to_facebook(video_path: str, caption: str, auto_click_publish: bool 
             siguiente_btn.click()
             time.sleep(3)
 
-            # 5. Paso 2 -> Paso 3 (Compartir)
-            print("[*] Avanzando a Paso 3 (Compartir)...", flush=True)
+            # 5. Paso 2 -> Paso 3 (Compartir / Programar)
+            print("[*] Avanzando a Paso 3...", flush=True)
             siguiente2 = page.locator('div[role="button"]:has-text("Siguiente"), button:has-text("Siguiente")').last
             if siguiente2.is_visible(timeout=10000):
                 siguiente2.click()
                 time.sleep(3)
 
-            # 6. Botón final: "Compartir" o "Publicar"
-            pub_btn = None
-            print("[*] Esperando a que el botón final de Compartir esté habilitado en Paso 3...", flush=True)
+            # 6. Si es modo PROGRAMACIÓN, seleccionar "Programar" y fijar fecha/hora
+            is_scheduled = False
+            if schedule_datetime:
+                print(f"[*] Configurando programación para {schedule_datetime.strftime('%Y-%m-%d %H:%M')}...", flush=True)
+                btns = page.locator('div[role="button"]:has-text("Programar")')
+                for i in range(btns.count()):
+                    b = btns.nth(i)
+                    if b.inner_text().strip() == "Programar":
+                        b.click()
+                        time.sleep(2)
+                        break
+
+                # Hora y minutos
+                hour_str = f"{schedule_datetime.hour:02d}"
+                min_str = f"{schedule_datetime.minute:02d}"
+                h_input = page.locator('input[aria-label="horas"]')
+                m_input = page.locator('input[aria-label="minutos"]')
+                if h_input.count() > 0:
+                    h_input.click()
+                    page.keyboard.press("Control+A")
+                    page.keyboard.type(hour_str)
+                    time.sleep(0.3)
+                if m_input.count() > 0:
+                    m_input.click()
+                    page.keyboard.press("Control+A")
+                    page.keyboard.type(min_str)
+                    time.sleep(0.3)
+
+                # Fecha si es un día futuro
+                today = datetime.now().date()
+                if schedule_datetime.date() > today:
+                    print(f"[*] Fijando fecha futura ({schedule_datetime.day})...", flush=True)
+                    date_input = page.locator('input[value*="noviembre"], input[value*="2026"], input[value*="/"]').first
+                    if date_input.count() > 0:
+                        date_input.click()
+                        time.sleep(1)
+                        day_cell = page.locator(f'div[role="gridcell"]:has-text("{schedule_datetime.day}")').first
+                        if day_cell.is_visible():
+                            day_cell.click()
+                            time.sleep(1)
+                        else:
+                            page.keyboard.press("Escape")
+
+                is_scheduled = True
+                print("[+] Opciones de programación fijadas correctamente.", flush=True)
+                time.sleep(2)
+
+            # 7. Botón final: "Compartir" o "Programar"
+            action_btn_text = "Programar" if is_scheduled else "Compartir"
+            submit_btn = None
+            print(f"[*] Esperando botón final de {action_btn_text}...", flush=True)
             for attempt in range(20):  # Hasta 40 segundos
-                candidate = page.locator('div[role="button"]:has-text("Compartir"), button:has-text("Compartir"), div[role="button"]:has-text("Publicar"), button:has-text("Publicar")').last
+                candidate = page.locator(
+                    'div[role="button"]:has-text("Programar"), button:has-text("Programar"), '
+                    'div[role="button"]:has-text("Compartir"), button:has-text("Compartir"), '
+                    'div[role="button"]:has-text("Publicar"), button:has-text("Publicar")'
+                ).last
                 if candidate.is_visible():
                     aria = candidate.get_attribute("aria-disabled")
                     dis = candidate.get_attribute("disabled")
                     if aria != "true" and dis is None:
-                        pub_btn = candidate
-                        print(f"[+] Botón final Compartir habilitado tras {attempt * 2} segundos!", flush=True)
+                        submit_btn = candidate
+                        print(f"[+] Botón final {action_btn_text} habilitado tras {attempt * 2} segundos!", flush=True)
                         break
                 time.sleep(2)
 
-            if not pub_btn:
-                page.screenshot(path="scratch/meta_share_button_failure.png")
+            if not submit_btn:
+                page.screenshot(path="scratch/meta_final_button_failure.png")
                 context.close()
-                return {"success": False, "error": "No se habilitó el botón final de Compartir en Meta."}
+                return {"success": False, "error": f"No se habilitó el botón final de {action_btn_text} en Meta."}
 
             if auto_click_publish:
-                print("[*] ¡Haciendo clic en Compartir!", flush=True)
-                pub_btn.click()
-                print("[*] Esperando confirmación de publicación de Meta...", flush=True)
+                print(f"[*] ¡Haciendo clic en {action_btn_text}!", flush=True)
+                submit_btn.click()
+                print("[*] Esperando confirmación de Meta...", flush=True)
 
-                published = False
+                confirmed = False
                 for _ in range(20):  # Hasta 40 segundos
                     time.sleep(2)
                     listo_btn = page.locator('div[role="button"]:has-text("Listo"), button:has-text("Listo")').first
                     if listo_btn.is_visible():
                         listo_btn.click()
                         time.sleep(2)
-                        published = True
+                        confirmed = True
                         break
                     if "reels_composer" not in page.url:
-                        published = True
+                        confirmed = True
                         break
-                    if page.locator('div[role="button"]:has-text("Compartir")').count() == 0:
-                        published = True
+                    if page.locator('div[role="button"]:has-text("Compartir"), div[role="button"]:has-text("Programar")').count() == 0:
+                        confirmed = True
                         break
 
                 context.close()
-                print("[+] ¡Reel publicado exitosamente en Meta Business Suite!", flush=True)
-                return {
-                    "success": True,
-                    "published": True,
-                    "message": "¡Reel publicado con éxito en tu página de Facebook!"
-                }
+                if is_scheduled:
+                    print(f"[+] ¡Reel programado exitosamente en Meta para {schedule_datetime.strftime('%Y-%m-%d %H:%M')}!", flush=True)
+                    return {
+                        "success": True,
+                        "published": False,
+                        "scheduled": True,
+                        "scheduled_time": schedule_datetime.isoformat(),
+                        "message": f"¡Reel programado con éxito en Meta para el {schedule_datetime.strftime('%d/%m a las %I:%M %p')}!"
+                    }
+                else:
+                    print("[+] ¡Reel publicado exitosamente en Meta Business Suite!", flush=True)
+                    return {
+                        "success": True,
+                        "published": True,
+                        "scheduled": False,
+                        "message": "¡Reel publicado con éxito en tu página de Facebook!"
+                    }
             else:
                 return {
                     "success": True,
                     "published": False,
-                    "message": "Video cargado y preparado en Meta Reels Composer."
+                    "scheduled": is_scheduled,
+                    "message": "Video preparado en Meta Reels Composer."
                 }
 
     except Exception as e:
         print(f"[-] Error en publish_to_facebook: {e}", flush=True)
         return {"success": False, "error": str(e)}
 
-def prepare_post(platform: str, video_path: str, title: str = "", description: str = "") -> Dict[str, Any]:
+def prepare_post(
+    platform: str,
+    video_path: str,
+    title: str = "",
+    description: str = "",
+    schedule_datetime: Optional[datetime] = None
+) -> Dict[str, Any]:
     full_text = f"{title}\n\n{description}".strip() if title else description.strip()
     plat = platform.lower()
 
     if "face" in plat:
-        return publish_to_facebook(video_path, full_text, auto_click_publish=True)
+        return publish_to_facebook(
+            video_path,
+            full_text,
+            auto_click_publish=True,
+            schedule_datetime=schedule_datetime
+        )
     else:
         return {
             "success": False,

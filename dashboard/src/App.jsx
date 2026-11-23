@@ -12,6 +12,7 @@ import SaaShortsTab from './components/SaaShortsTab';
 import AiAssistantTab from './components/AiAssistantTab';
 import UGCGallery from './components/UGCGallery';
 import ScheduleWeekModal from './components/ScheduleWeekModal';
+import SmartScheduleModal from './components/SmartScheduleModal';
 import ClipEditor from './components/ClipEditor';
 import ReframeEditor from './components/ReframeEditor';
 import UsageMeter from './components/UsageMeter';
@@ -290,6 +291,7 @@ function App() {
   // Cloud auth/billing session (inert when billing is disabled).
   const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, aiProvider, refreshConfig, loading: authLoading } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
+  const [showSmartScheduleModal, setShowSmartScheduleModal] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   // Free plan: "want the watermark off?" once per job, when the clips land.
   const [showWmNotice, setShowWmNotice] = useState(false);
@@ -2570,35 +2572,52 @@ function App() {
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
                   {results && results.clips && results.clips.length > 0 ? (
-                    <div className={`grid gap-4 pb-10 ${status === 'complete' ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,600px),1fr))]' : 'grid-cols-1'}`}>
-                      {rankedClips.map(({ clip, index: i }) => (
-                        <ResultCard
-                          key={`${jobId}-${i}-${clip.video_url || ''}`}
-                          clip={clip}
-                          index={i}
-                          jobId={jobId}
-                          onEditClip={(index) => setEditingClip(index)}
-                          onReframeClip={(index) => setReframingClip(index)}
-                          onModeChanged={status === 'processing' ? null : handleClipRerendered}
-                          onUpgrade={isManaged ? openUpsell : null}
-                          initialState={projectState?.clips?.find((c) => c.index === i) || null}
-                          onStateChange={handleClipStateChange}
-                          durable={durableClips[i]}
-                          uploadPostKey={uploadPostKey}
-                          uploadUserId={uploadUserId}
-                          geminiApiKey={apiKey}
-                          elevenLabsKey={elevenLabsKey}
-                          isManaged={isManaged}
-                          connectedPlatforms={(userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0])?.connected ?? null}
-                          onConnectSocials={isManaged ? handleConnectSocials : null}
-                          onPlay={(time) => handleClipPlay(time)}
-                          onPause={handleClipPause}
-                          onBulkSubtitle={handleBulkSubtitles}
-                          clipCount={results.clips.length}
-                          bulkProgress={bulkSub}
-                        />
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-3 mb-4 bg-paper3/80 border border-rule rounded-xl shadow-sm">
+                        <div className="flex items-center gap-2 text-xs text-ink font-medium">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>{results.clips.length} {results.clips.length === 1 ? 'clip listo' : 'clips listos'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowSmartScheduleModal(true)}
+                          className="px-3.5 py-1.5 rounded-lg bg-brass/15 hover:bg-brass/25 border border-brass/40 text-brass text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                          title="Distribuye todos los clips en los mejores horarios de gaming sin canibalizar vistas"
+                        >
+                          <Calendar size={13} />
+                          Programar todos ({results.clips.length})
+                        </button>
+                      </div>
+                      <div className={`grid gap-4 pb-10 ${status === 'complete' ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,600px),1fr))]' : 'grid-cols-1'}`}>
+                        {rankedClips.map(({ clip, index: i }) => (
+                          <ResultCard
+                            key={`${jobId}-${i}-${clip.video_url || ''}`}
+                            clip={clip}
+                            index={i}
+                            jobId={jobId}
+                            onEditClip={(index) => setEditingClip(index)}
+                            onReframeClip={(index) => setReframingClip(index)}
+                            onModeChanged={status === 'processing' ? null : handleClipRerendered}
+                            onUpgrade={isManaged ? openUpsell : null}
+                            initialState={projectState?.clips?.find((c) => c.index === i) || null}
+                            onStateChange={handleClipStateChange}
+                            durable={durableClips[i]}
+                            uploadPostKey={uploadPostKey}
+                            uploadUserId={uploadUserId}
+                            geminiApiKey={apiKey}
+                            elevenLabsKey={elevenLabsKey}
+                            isManaged={isManaged}
+                            connectedPlatforms={(userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0])?.connected ?? null}
+                            onConnectSocials={isManaged ? handleConnectSocials : null}
+                            onPlay={(time) => handleClipPlay(time)}
+                            onPause={handleClipPause}
+                            onBulkSubtitle={handleBulkSubtitles}
+                            clipCount={results.clips.length}
+                            bulkProgress={bulkSub}
+                          />
+                        ))}
+                      </div>
+                    </>
                   ) : (
                     status === 'processing' ? (
                       <div className="h-full min-h-[140px] flex flex-col items-center justify-center text-muted space-y-3 text-center px-4">
@@ -2818,6 +2837,12 @@ function App() {
           onClose={() => setShowTrialUpgrade(false)}
         />
       )}
+      <SmartScheduleModal
+        isOpen={showSmartScheduleModal}
+        onClose={() => setShowSmartScheduleModal(false)}
+        clips={results?.clips || []}
+        jobId={jobId}
+      />
     </div>
   );
 }

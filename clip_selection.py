@@ -68,18 +68,27 @@ def clip_count_targets(n_windows):
     return low, max(low, high)
 
 
-def shortlist_target(video_duration):
+def shortlist_target(video_duration, user_target_clips=None):
     """How many scored windows the detail pass should get.
 
     Scales with duration so a long video surfaces more candidates without
     exploding the detail call, floored at 3 so a short one still gets a
-    choice. ``score_batches`` exists to make this number reachable.
+    choice. Scales up when user explicitly sets CLIP_TARGET_MIN/MAX so the
+    detail pass has enough candidate windows to satisfy the request.
     """
     try:
         seconds = float(video_duration or 0)
     except (TypeError, ValueError):
         seconds = 0.0
-    return max(3, min(10, int(seconds // 90) + 2))
+    base = max(3, min(10, int(seconds // 90) + 2))
+
+    import os
+    env_req = os.environ.get("CLIP_TARGET_MAX") or os.environ.get("CLIP_TARGET_MIN")
+    req = int(env_req) if env_req and env_req.isdigit() else (user_target_clips or 0)
+    if req > 0:
+        # Asegurar suficientes ventanas candidatas para cumplir la cantidad solicitada
+        base = max(base, min(15, req + 2))
+    return base
 
 
 def score_batches(windows, batch_size):

@@ -8856,6 +8856,16 @@ class BrowserPublishRequest(BaseModel):
     video_url: str
     title: Optional[str] = ""
     description: Optional[str] = ""
+    scheduled_datetime: Optional[str] = None
+
+
+class PlanBatchRequest(BaseModel):
+    clips: List[Dict[str, Any]]
+
+
+class ScheduleBatchRequest(BaseModel):
+    job_id: Optional[str] = ""
+    clips: List[Dict[str, Any]]
 
 import httpx
 
@@ -8965,16 +8975,105 @@ async def browser_publish_open(req: BrowserPublishRequest):
     if not os.path.exists(abs_path):
         raise HTTPException(status_code=404, detail=f"Video file not found: {abs_path}")
 
+    schedule_dt = None
+    if req.scheduled_datetime:
+        try:
+            schedule_dt = datetime.fromisoformat(req.scheduled_datetime)
+        except Exception:
+            pass
+
     try:
         loop = asyncio.get_event_loop()
         res = await loop.run_in_executor(
             None,
             browser_publisher.prepare_post,
-            req.platform, abs_path, req.title or "", req.description or ""
+            req.platform, abs_path, req.title or "", req.description or "", schedule_dt
         )
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/social/plan-batch")
+async def plan_batch_schedule(req: PlanBatchRequest):
+    import smart_scheduler
+    planned = smart_scheduler.plan_schedule_for_clips(req.clips)
+    return {"success": True, "planned_clips": planned}
+
+
+@app.get("/api/social/schedule-queue")
+async def get_schedule_queue(limit: int = 50):
+    import smart_scheduler
+    items = smart_scheduler.get_queue_items(limit)
+    return {"success": True, "queue": items}
+
+
+async def _process_schedule_batch(items: List[Dict[str, Any]]):
+    import importlib
+    import browser_publisher
+    import smart_scheduler
+    import urllib.parse
+
+    for item in items:
+        item_id = item.get("id")
+        raw_url = item.get("video_url") or item.get("video_path") or ""
+        raw_url_unquoted = urllib.parse.unquote(raw_url)
+        if raw_url_unquoted.startswith("/videos/"):
+            rel = raw_url_unquoted[len("/videos/"):].lstrip("/\\")
+            abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, rel))
+        elif os.path.exists(raw_url_unquoted):
+            abs_path = os.path.abspath(raw_url_unquoted)
+        elif raw_url.startswith("/videos/"):
+            rel = raw_url[len("/videos/"):].lstrip("/\\")
+            abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, rel))
+        elif os.path.exists(raw_url):
+            abs_path = os.path.abspath(raw_url)
+        else:
+            abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, raw_url_unquoted))
+
+        if not os.path.exists(abs_path):
+            smart_scheduler.update_item_status(item_id, "failed", error=f"Video not found: {abs_path}")
+            continue
+
+        schedule_dt = None
+        if item.get("scheduled_datetime"):
+            try:
+                schedule_dt = datetime.fromisoformat(item["scheduled_datetime"])
+            except Exception:
+                pass
+
+        smart_scheduler.update_item_status(item_id, "publishing")
+        try:
+            loop = asyncio.get_event_loop()
+            res = await loop.run_in_executor(
+                None,
+                browser_publisher.prepare_post,
+                "facebook", abs_path, item.get("title") or "", item.get("description") or "", schedule_dt
+            )
+            if res.get("success"):
+                smart_scheduler.update_item_status(item_id, "published")
+            else:
+                smart_scheduler.update_item_status(item_id, "failed", error=res.get("error", "Error desconocido"))
+        except Exception as e:
+            smart_scheduler.update_item_status(item_id, "failed", error=str(e))
+
+        # Esperar 6 segundos entre clips para que Meta procese ordenadamente
+        await asyncio.sleep(6)
+
+
+@app.post("/api/social/schedule-batch")
+async def schedule_batch_endpoint(req: ScheduleBatchRequest, background_tasks: BackgroundTasks):
+    import smart_scheduler
+    planned = smart_scheduler.plan_schedule_for_clips(req.clips)
+    queued_items = smart_scheduler.add_batch_to_queue(req.job_id or "", planned)
+
+    background_tasks.add_task(_process_schedule_batch, queued_items)
+
+    return {
+        "success": True,
+        "message": f"¡{len(queued_items)} clips organizados en cola inteligente!",
+        "items": queued_items
+    }
 
 
 @app.post("/api/social/post")
