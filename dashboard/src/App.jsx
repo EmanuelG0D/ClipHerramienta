@@ -1398,16 +1398,16 @@ function App() {
   // drawer, and the bottom tab bar. `short` is the tab-bar label — the full one
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
-    { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Generador de Clips', short: 'clips', primary: true },
-    { id: 'assistant', ord: '02', icon: Bot, label: 'AI Assistant', short: 'asistente', isNew: true, primary: true },
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Generador de Clips', short: 'clips', primary: true },
+    { id: 'assistant', icon: Bot, label: 'AI Assistant', short: 'asistente', primary: true },
     // Cloud only: it runs on the managed pipeline and the Upload-Post connection.
-    ...(billingEnabled ? [{ id: 'autopilot', ord: '03', icon: Rocket, label: 'Piloto Automático', short: 'piloto', isNew: true }] : []),
-    { id: 'saasshorts', ord: '04', icon: Sparkles, label: 'Shorts IA', short: 'shorts ia', byok: true, primary: true },
-    { id: 'ai-agent', ord: '05', icon: Terminal, label: 'Agente MCP', short: 'mcp', byok: true },
-    { id: 'ugc-gallery', ord: '06', icon: LayoutGrid, label: 'Galería UGC', short: 'galería', primary: true },
-    { id: 'thumbnails', ord: '07', icon: Image, label: 'Estudio YouTube', short: 'estudio', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '08', icon: History, label: 'Historial', short: 'historial' }] : []),
-    { id: 'settings', ord: '09', icon: Settings, label: 'Configuración', short: 'ajustes' },
+    ...(billingEnabled ? [{ id: 'autopilot', icon: Rocket, label: 'Piloto Automático', short: 'piloto' }] : []),
+    { id: 'saasshorts', icon: Sparkles, label: 'Shorts IA', short: 'shorts ia', primary: true },
+    { id: 'ai-agent', icon: Terminal, label: 'Agente MCP', short: 'mcp' },
+    { id: 'ugc-gallery', icon: LayoutGrid, label: 'Galería UGC', short: 'galería', primary: true },
+    { id: 'thumbnails', icon: Image, label: 'Estudio YouTube', short: 'estudio', primary: true },
+    ...(billingEnabled && isSignedIn ? [{ id: 'history', icon: History, label: 'Historial', short: 'historial' }] : []),
+    { id: 'settings', icon: Settings, label: 'Configuración', short: 'ajustes' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
 
@@ -1467,11 +1467,7 @@ function App() {
               )}
               <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
               <span className="text-sm lowercase hidden lg:block flex-1 text-left truncate">{item.label}</span>
-              {tabLocked(item.id)
-                ? <Lock size={12} className="shrink-0 hidden lg:block" />
-                : item.byok ? <span className="readout hidden lg:block">BYOK</span>
-                  : item.isNew ? <span className="badge-brass hidden lg:block">new</span> : null}
-              <span className="readout hidden lg:block">{item.ord}</span>
+              {tabLocked(item.id) && <Lock size={12} className="shrink-0 hidden lg:block" />}
             </button>
           );
         })}
@@ -1531,10 +1527,7 @@ function App() {
                 )}
                 <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
                 <span className="text-[0.95rem] lowercase flex-1 text-left truncate">{item.label}</span>
-                {tabLocked(item.id)
-                  ? <Lock size={12} className="shrink-0" />
-                  : item.byok ? <span className="readout shrink-0">BYOK</span>
-                    : item.isNew ? <span className="badge-brass shrink-0">new</span> : null}
+                {tabLocked(item.id) && <Lock size={12} className="shrink-0" />}
               </button>
             );
           })}
@@ -1997,7 +1990,7 @@ function App() {
 
           {/* View: SaaS Shorts */}
           {activeTab === 'saasshorts' && (
-            <SaaShortsTab geminiApiKey={apiKey} elevenLabsKey={elevenLabsKey} falKey={falKey} uploadPostKey={uploadPostKey} uploadUserId={uploadUserId} managed={isManaged} />
+            <SaaShortsTab geminiApiKey={apiKey} aiProvider={aiProvider} elevenLabsKey={elevenLabsKey} falKey={falKey} uploadPostKey={uploadPostKey} uploadUserId={uploadUserId} managed={isManaged} />
           )}
 
           {/* View: AI Agent */}
@@ -2173,6 +2166,7 @@ function App() {
           {activeTab === 'thumbnails' && (
             <ThumbnailStudio
               geminiApiKey={apiKey}
+              aiProvider={aiProvider}
               uploadPostKey={uploadPostKey}
               uploadUserId={uploadUserId}
               managed={isManaged}

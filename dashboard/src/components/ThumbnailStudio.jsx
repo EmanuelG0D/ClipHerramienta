@@ -79,11 +79,13 @@ function DragDropZone({ label, accept, onFile, file, onClear, icon }) {
   );
 }
 
-export default function ThumbnailStudio({ geminiApiKey, uploadPostKey, uploadUserId, managed = false, onCreateClips = null }) {
-  // Managed (hosted plan): Gemini runs server-side via the bearer token, no BYOK key.
-  // Only send X-Gemini-Key for self-host BYOK. apiFetch attaches the bearer token.
-  const keyHeader = geminiApiKey ? { 'X-Gemini-Key': geminiApiKey } : {};
-  const needsKey = !geminiApiKey && !managed;
+export default function ThumbnailStudio({ geminiApiKey, aiProvider = null, uploadPostKey, uploadUserId, managed = false, onCreateClips = null }) {
+  // Managed or Antigravity / local AI provider: Gemini runs server-side, no BYOK key needed.
+  const keyHeader = {
+    ...(geminiApiKey ? { 'X-Gemini-Key': geminiApiKey } : {}),
+    ...(aiProvider?.provider ? { 'X-AI-Provider': aiProvider.provider, 'X-AI-Model': aiProvider.model } : {})
+  };
+  const needsKey = !geminiApiKey && !managed && !aiProvider;
   // Step management
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState(null); // 'video' or 'manual'

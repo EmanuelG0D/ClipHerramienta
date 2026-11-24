@@ -206,6 +206,8 @@ async def resolve_gemini(request: Request) -> Optional[str]:
     header = request.headers.get("X-Gemini-Key")
     if header:
         return header
+    if ai_providers.is_active():
+        return "antigravity"
     return os.environ.get("GEMINI_API_KEY")
 
 
