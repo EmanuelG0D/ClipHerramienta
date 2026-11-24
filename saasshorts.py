@@ -55,20 +55,18 @@ def research_saas_online(url: str, gemini_key: str) -> dict:
     from google import genai
     from google.genai import types
 
-    print(f"[SaaSShorts] 🔍 Researching {url} across the web (Google Search grounding)...")
-
-    client = genai.Client(api_key=gemini_key)
+    print(f"[SaaSShorts] 🔍 Researching {url} across the web...")
 
     # Extract domain name for search queries
     domain = url.replace("https://", "").replace("http://", "").split("/")[0]
 
-    prompt = f"""You are a world-class SaaS market researcher. Research this product thoroughly using Google Search.
+    prompt = f"""You are a world-class SaaS market researcher. Research this product thoroughly.
 
 Product URL: {url}
 Domain: {domain}
 
 SEARCH AND INVESTIGATE:
-1. What does this SaaS product do? (search their website, Product Hunt, G2, Capterra)
+1. What does this SaaS product do? (Product Hunt, G2, Capterra)
 2. What are REAL user reviews saying? (G2, Capterra, TrustPilot, Reddit, Twitter/X)
 3. What are the most common complaints and pain points users mention?
 4. Who are their main competitors and how do they compare?
@@ -83,24 +81,46 @@ Return a comprehensive JSON research report:
     "website_url": "{url}",
     "what_it_does": "Detailed description of the product based on web research",
     "target_market": "Who this product is for",
-    "pricing_info": "Pricing details found online (plans, costs, free tier)",
-    "user_sentiment": "overall positive/mixed/negative",
+    "pricing_info": "Pricing tiers and what users think of the pricing",
+    "user_sentiment": "Overall sentiment (positive/negative/mixed) with specific reasons",
     "real_reviews": [
-        {{"source": "G2/Reddit/Twitter/etc", "quote": "actual user quote or paraphrase", "sentiment": "positive/negative/neutral"}},
-        ...
+        {{"source": "Reddit/G2/etc", "sentiment": "positive/negative", "quote": "actual or paraphrased user quote", "topic": "what they talked about"}}
     ],
-    "common_complaints": ["complaint 1 from real users", "complaint 2", ...],
-    "common_praise": ["what users love 1", "what users love 2", ...],
+    "common_complaints": ["complaint 1 from real users", "complaint 2"],
+    "common_praise": ["what users love 1", "what users love 2"],
     "competitors": [
         {{"name": "competitor", "comparison": "how they compare"}}
     ],
-    "viral_potential": ["angle 1 based on real discussions", "angle 2", ...],
+    "viral_potential": ["angle 1 based on real discussions", "angle 2"],
     "key_differentiators": ["what makes them unique based on research"],
     "content_angles_from_web": ["angles found from existing content about this product"],
     "sources_found": ["list of URLs where information was found"]
 }}
 
-Be thorough. Use REAL data from your search results, not made-up information."""
+Be thorough. Output ONLY valid JSON."""
+
+    if gemini_key == "antigravity" or not gemini_key:
+        import antigravity_acp
+        raw, _ = antigravity_acp._fallback_generate_with_agy_cli(prompt)
+        text = raw.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        try:
+            research = json.loads(text)
+        except json.JSONDecodeError:
+            research = {"raw_research": text, "product_name": domain}
+        research["grounding_sources"] = []
+        return research
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=gemini_key)
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
@@ -267,17 +287,29 @@ def _scrape_website(url: str) -> dict:
     return result
 
 
+def _generate_text_or_antigravity(gemini_key: str, prompt: str) -> str:
+    """Generate structured response via Antigravity ACP (no key) or Google GenAI."""
+    if gemini_key == "antigravity" or not gemini_key:
+        import antigravity_acp
+        raw, _ = antigravity_acp._fallback_generate_with_agy_cli(prompt)
+        return raw or ""
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=gemini_key)
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(response_mime_type="application/json", max_output_tokens=8192),
+    )
+    return response.text or ""
+
+
 def analyze_saas(scraped_data: dict, gemini_key: str, web_research: dict = None) -> dict:
     """
     Deep analysis of a SaaS product combining website scraping + web research.
-    Uses Gemini 3 Flash for synthesis.
+    Uses Antigravity ACP or Gemini 3 Flash for synthesis.
     """
-    from google import genai
-    from google.genai import types
-
     print(f"[SaaSShorts] 🧠 Analyzing {scraped_data['url']} (with web research)...")
-
-    client = genai.Client(api_key=gemini_key)
 
     # Build web research context
     research_context = ""
@@ -363,15 +395,9 @@ Return a JSON object:
 IMPORTANT: Use REAL pain points from user reviews when available. Real frustrations make the best UGC content.
 Include 5-8 pain points, 4-6 emotional hooks, and 4+ viral angles."""
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[prompt],
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
-
-    raw = response.text
+    raw = _generate_text_or_antigravity(gemini_key, prompt)
     if not raw:
-        raise Exception("Gemini returned empty response for SaaS analysis")
+        raise Exception("AI returned empty response for SaaS analysis")
 
     text = raw.strip()
     if text.startswith("```"):
@@ -405,13 +431,8 @@ def generate_scripts(
     actor_gender: str = "female",
 ) -> list:
     """Generate video scripts based on SaaS analysis."""
-    from google import genai
-    from google.genai import types
-
     lang_name = "Spanish" if language == "es" else "English"
     print(f"[SaaSShorts] 📝 Generating {num_scripts} scripts ({style}, {lang_name})...")
-
-    client = genai.Client(api_key=gemini_key)
 
     style_guide = {
         "ugc": "Natural, authentic UGC style. Person talking to camera like sharing a discovery with a friend. Casual, genuine.",
@@ -545,18 +566,9 @@ RULES:
 - Example female: "a 26 year old attractive european woman, light brown wavy hair, wearing a white tank top, natural minimal makeup, friendly face"
 - Example male: "a 29 year old european man, short dark hair, light stubble, wearing a navy t-shirt, smart casual look" """
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[prompt],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            max_output_tokens=8192,
-        ),
-    )
-
-    raw = response.text
+    raw = _generate_text_or_antigravity(gemini_key, prompt)
     if not raw:
-        raise Exception("Gemini returned empty response for script generation")
+        raise Exception("AI returned empty response for script generation")
 
     text = raw.strip()
     if text.startswith("```"):

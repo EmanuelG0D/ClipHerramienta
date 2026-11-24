@@ -440,6 +440,9 @@ def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
     y -= y % 2
 
     filler_h = out_h - screen_h - cam_h
+    # Streamer facecam on TOP, gameplay screen below (classic viral gaming/streaming layout)
+    y_cam = max(0, filler_h // 4)
+    y_screen = y_cam + cam_h + max(0, filler_h // 4)
 
     return (
         f"[0:v]split=3[bga][sa][ca];"
@@ -449,7 +452,7 @@ def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
         f"[bga]{blurred_backdrop(out_w, out_h, 14)}[bg];"
         f"[sa]scale={out_w}:{screen_h}[screen];"
         f"[ca]crop=w={w}:h={h}:x={x}:y={y},scale={out_w}:{cam_h}[cam];"
-        f"[bg][screen]overlay=x=0:y={filler_h // 2}[withscreen];"
-        f"[withscreen][cam]overlay=x=0:y={filler_h // 2 + screen_h},"
+        f"[bg][cam]overlay=x=0:y={y_cam}[withcam];"
+        f"[withcam][screen]overlay=x=0:y={y_screen},"
         f"setsar=1[v]"
     )

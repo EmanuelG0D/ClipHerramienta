@@ -55,6 +55,20 @@ def _frame_parts(video_path, n=TITLE_FRAMES, width=TITLE_FRAME_WIDTH):
         return []
 
 
+def _generate_text(api_key, prompt, client=None):
+    if api_key == "antigravity" or not api_key:
+        import antigravity_acp
+        raw, _ = antigravity_acp._fallback_generate_with_agy_cli(prompt)
+        return raw or ""
+    c = client or genai.Client(api_key=api_key)
+    response = c.models.generate_content(
+        model=TEXT_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    return getattr(response, "text", "") or ""
+
+
 # ---------------------------------------------------------------------------
 # Titles
 # ---------------------------------------------------------------------------
@@ -74,55 +88,22 @@ def analyze_video_for_titles(api_key, video_path, transcript=None):
     else:
         print("🎬 [Thumbnail] Using pre-computed transcript (Whisper already done)...")
 
-    client = genai.Client(api_key=api_key)
-    frames = _frame_parts(video_path)
-    language = transcript.get("language", "en")
-    segments = transcript.get("segments", [])
-    video_duration = segments[-1]["end"] if segments else 0
-    # Enough transcript for a title; a 3-hour podcast does not need all of it.
-    transcript_text = transcript.get("text", "")[:60000]
-
-    brainstorm_prompt = f"""You are a YouTube packaging expert (titles + thumbnails) for a channel that wants maximum CTR without lying.
-
-The images are frames sampled evenly across the video. The transcript is below.
-
-TRANSCRIPT (language: {language}):
-{transcript_text}
-
-TASK 1: Summarize the video in 2-3 sentences (what it is, who it is for, the single most surprising or valuable point).
-
-TASK 2: Brainstorm 25 candidate titles. Cover ALL of these styles, at least 3 each:
-- specific outcome / result ("I did X and Y happened")
-- curiosity gap (withhold the key fact, never clickbait the video does not pay off)
-- contrarian / myth-busting
-- how-to with a concrete promise
-- number / list
-- question the viewer already asks themselves
-- story / confession
-
-TITLE RULES:
-- Write in the SAME LANGUAGE as the transcript ({language}). Never translate.
-- Ideal length {TITLE_MOBILE_CHARS} characters or less; hard maximum {TITLE_MAX_CHARS}. Phones cut titles after ~{TITLE_MOBILE_CHARS} characters, so the payoff must land inside the first {TITLE_MOBILE_CHARS}.
-- Put the main keyword / subject in the first 3 words.
-- Be specific to THIS video: names, numbers, tools, places from the transcript. Nothing generic.
-- No ALL CAPS words, at most one exclamation mark, no emojis.
-
-OUTPUT JSON:
-{{
-  "transcript_summary": "...",
-  "candidates": ["title", ...]
-}}"""
-
     print("🤖 [Thumbnail] Brainstorming titles...")
-    response = client.models.generate_content(
-        model=TEXT_MODEL,
-        contents=frames + [brainstorm_prompt],
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
+    if api_key == "antigravity" or not api_key:
+        raw_brainstorm = _generate_text(api_key, brainstorm_prompt)
+    else:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=TEXT_MODEL,
+            contents=frames + [brainstorm_prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        raw_brainstorm = getattr(response, "text", "")
+
     try:
-        draft = _parse_json(response.text)
+        draft = _parse_json(raw_brainstorm)
     except (json.JSONDecodeError, AttributeError):
-        print(f"❌ [Thumbnail] Failed to parse brainstorm JSON: {getattr(response, 'text', '')}")
+        print(f"❌ [Thumbnail] Failed to parse brainstorm JSON: {raw_brainstorm[:200]}")
         return {
             "titles": ["Could not generate titles - please try again"],
             "thumbnail_texts": [],
@@ -163,18 +144,23 @@ OUTPUT JSON:
 }}"""
 
     print("🧐 [Thumbnail] Scoring titles...")
-    response = client.models.generate_content(
-        model=TEXT_MODEL,
-        contents=[critic_prompt],
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
+    if api_key == "antigravity" or not api_key:
+        raw_critic = _generate_text(api_key, critic_prompt)
+    else:
+        response = client.models.generate_content(
+            model=TEXT_MODEL,
+            contents=[critic_prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        raw_critic = getattr(response, "text", "")
+
     try:
-        picked = _parse_json(response.text)
+        picked = _parse_json(raw_critic)
         titles = [t for t in picked.get("titles", []) if isinstance(t, str) and t.strip()]
         if not titles:
             raise ValueError("no titles")
     except (json.JSONDecodeError, AttributeError, ValueError):
-        print(f"⚠️ [Thumbnail] Critic failed, falling back to the brainstorm: {getattr(response, 'text', '')[:300]}")
+        print(f"⚠️ [Thumbnail] Critic failed, falling back to the brainstorm: {raw_critic[:300]}")
         titles = candidates[:10]
         picked = {"thumbnail_texts": [], "recommended": []}
 
@@ -197,7 +183,6 @@ def refine_titles(api_key, context, user_message, conversation_history=None):
     """
     Takes video context + user feedback and returns refined title suggestions.
     """
-    client = genai.Client(api_key=api_key)
 
     history_text = ""
     if conversation_history:
@@ -231,23 +216,16 @@ OUTPUT JSON:
     "language": "ISO 639-1 code of the language the titles are written in"
 }}"""
 
-    response = client.models.generate_content(
-        model=TEXT_MODEL,
-        contents=[prompt],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json"
-        )
-    )
-
+    raw = _generate_text(api_key, prompt)
     try:
-        result = _parse_json(response.text)
+        result = _parse_json(raw)
         titles = [t for t in result.get("titles", []) if isinstance(t, str) and t.strip()]
         texts = [str(t) for t in result.get("thumbnail_texts", [])][:len(titles)]
         texts += [""] * (len(titles) - len(texts))
         return {"titles": titles, "thumbnail_texts": texts,
                 "language": str(result.get("language") or "")[:5]}
     except (json.JSONDecodeError, AttributeError):
-        print(f"❌ [Thumbnail] Failed to parse refined titles: {response.text}")
+        print(f"❌ [Thumbnail] Failed to parse refined titles: {raw[:200]}")
         return {"titles": ["Could not refine titles - please try again"], "thumbnail_texts": [], "language": ""}
 
 
@@ -729,10 +707,9 @@ def generate_thumbnail(api_key, title, session_id, face_image_path=None, bg_imag
 def generate_youtube_description(api_key, title, transcript_segments, language, video_duration,
                                  max_chars=200000):
     """
-    Uses Gemini to generate a YouTube description with chapter markers from transcript segments.
+    Uses Antigravity ACP or Gemini to generate a YouTube description with chapter markers from transcript segments.
     Returns: { "description": "full description text with chapters" }
     """
-    client = genai.Client(api_key=api_key)
 
     # Format segments for the prompt
     formatted_segments = []
@@ -776,12 +753,8 @@ REQUIREMENTS:
 OUTPUT: Return ONLY the description text (no JSON wrapper, no markdown code blocks). The description should be ready to paste directly into YouTube."""
 
     print("🤖 [Thumbnail] Generating YouTube description with chapters...")
-    response = client.models.generate_content(
-        model=TEXT_MODEL,
-        contents=[prompt],
-    )
-
-    description = response.text.strip()
+    raw = _generate_text(api_key, prompt)
+    description = (raw or "").strip()
     # Clean up any accidental markdown wrappers
     if description.startswith("```"):
         lines = description.split("\n")

@@ -750,13 +750,18 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     # five clips that had one, while camera_inset.detect finds all five with no
     # false positives. The box is fixed for the whole video, so it is found once.
     inset = None
-    if content_ranges and screencast_layout.ENABLED:
-        try:
-            inset = camera_inset.detect(input_video)
-        except Exception as e:
-            print(f"   ⚠️ Inset check failed ({e}) — using the screen layouts.")
-        if inset:
-            print(f"   📹 Webcam inset at {inset}")
+    try:
+        inset = camera_inset.detect(input_video)
+    except Exception as e:
+        print(f"   ⚠️ Inset check failed ({e}) — using the standard layouts.")
+    if inset:
+        print(f"   📹 Webcam inset detected at {inset}")
+        for scene_idx, (start_f, end_f) in enumerate(scene_boundaries):
+            if camera_inset.present_in_scene(input_video, inset, start_f, end_f):
+                strategies[scene_idx] = 'INSET'
+                splits.pop(start_f, None)
+                insets[start_f] = inset
+                inset_count += 1
 
     screencasts = {}
     focus_crops = {}

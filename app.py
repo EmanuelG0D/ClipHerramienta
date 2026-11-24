@@ -204,11 +204,11 @@ async def resolve_gemini(request: Request) -> Optional[str]:
             return managed_keys.gemini_key()
         return None
     header = request.headers.get("X-Gemini-Key")
-    if header:
-        return header
-    if ai_providers.is_active():
-        return "antigravity"
-    return os.environ.get("GEMINI_API_KEY")
+    if header and header.strip():
+        return header.strip()
+    if os.environ.get("GEMINI_API_KEY"):
+        return os.environ.get("GEMINI_API_KEY")
+    return "antigravity"
 
 
 async def resolve_upload_post(request: Request, body_key: Optional[str] = None):
