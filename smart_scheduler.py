@@ -57,10 +57,10 @@ def get_next_available_slots(count: int, start_after: Optional[datetime] = None)
         parsed_slots.append(dtime(hour=int(parts[0]), minute=int(parts[1])))
     parsed_slots.sort()
 
-    # Obtener fechas/horas ya ocupadas en la cola (status != 'cancelled' y != 'failed')
+    # Obtener fechas/horas ocupadas en la cola que están pendientes por publicar
     occupied_datetimes = set()
     for item in queue_data.get("queue", []):
-        if item.get("status") in ["scheduled", "publishing", "published"]:
+        if item.get("status") in ["scheduled", "publishing"]:
             dt_str = item.get("scheduled_datetime")
             if dt_str:
                 try:
@@ -128,11 +128,11 @@ def plan_schedule_for_clips(clips: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         is_tomorrow = target_dt.date() == (datetime.now() + timedelta(days=1)).date()
         
         if is_today:
-            tag = "Hoy"
+            tag = f"Hoy ({target_dt.day} {mes_nom[:3]})"
         elif is_tomorrow:
-            tag = "Mañana"
+            tag = f"Mañana ({target_dt.day} {mes_nom[:3]})"
         else:
-            tag = dia_nom
+            tag = f"{dia_nom} {target_dt.day} {mes_nom[:3]}"
 
         item = {
             **clip,

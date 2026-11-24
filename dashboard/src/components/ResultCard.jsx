@@ -1049,66 +1049,66 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 </div>
 
                 {/* Actions Footer */}
-                <div className="space-y-3 mt-auto pt-3 border-t border-rule/50">
-                    {/* Row of AI/Editing Tools (clean pills) */}
-                    <div className="flex flex-wrap items-center gap-1.5">
+                <div className="space-y-2.5 mt-auto pt-3 border-t border-rule/50">
+                    {/* Grid of AI/Editing Tools (Clean 3-column grid) */}
+                    <div className="grid grid-cols-3 gap-1.5">
                         {onEditClip && (
                             <button
                                 onClick={() => onEditClip(index)}
-                                className="px-2.5 py-1.5 rounded-lg border border-rule bg-paper3/80 hover:bg-paper2 text-xs text-ink font-medium flex items-center gap-1.5 transition-all cursor-pointer"
+                                className="py-2 px-2 rounded-lg border border-rule/70 bg-paper/70 hover:bg-paper3 text-xs text-ink font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                             >
-                                <Scissors size={14} className="text-brass" />
+                                <Scissors size={13} className="text-brass shrink-0" />
                                 <span>Recortar</span>
                             </button>
                         )}
                         {onReframeClip && (
                             <button
                                 onClick={() => onReframeClip(index)}
-                                className="px-2.5 py-1.5 rounded-lg border border-rule bg-paper3/80 hover:bg-paper2 text-xs text-ink font-medium flex items-center gap-1.5 transition-all cursor-pointer"
+                                className="py-2 px-2 rounded-lg border border-rule/70 bg-paper/70 hover:bg-paper3 text-xs text-ink font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                             >
-                                <Crosshair size={14} className="text-brass" />
+                                <Crosshair size={13} className="text-brass shrink-0" />
                                 <span>Reencuadre</span>
                             </button>
                         )}
                         <button
                             onClick={() => setShowSubtitleModal(true)}
                             disabled={isSubtitling}
-                            className="px-2.5 py-1.5 rounded-lg border border-rule bg-paper3/80 hover:bg-paper2 text-xs text-ink font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                            className="py-2 px-2 rounded-lg border border-rule/70 bg-paper/70 hover:bg-paper3 text-xs text-ink font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                         >
-                            {isSubtitling ? <Loader2 size={14} className="animate-spin text-brass" /> : <Type size={14} className="text-brass" />}
+                            {isSubtitling ? <Loader2 size={13} className="animate-spin text-brass shrink-0" /> : <Type size={13} className="text-brass shrink-0" />}
                             <span>Subtítulos</span>
                         </button>
                         <button
                             onClick={() => setShowHookModal(true)}
                             disabled={isHooking}
-                            className="px-2.5 py-1.5 rounded-lg border border-rule bg-paper3/80 hover:bg-paper2 text-xs text-ink font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                            className="py-2 px-2 rounded-lg border border-rule/70 bg-paper/70 hover:bg-paper3 text-xs text-ink font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                         >
-                            {isHooking ? <Loader2 size={14} className="animate-spin text-brass" /> : <Wand2 size={14} className="text-brass" />}
+                            {isHooking ? <Loader2 size={13} className="animate-spin text-brass shrink-0" /> : <Wand2 size={13} className="text-brass shrink-0" />}
                             <span>Gancho</span>
                         </button>
                         <button
                             onClick={() => setShowTranslateModal(true)}
                             disabled={isTranslating}
-                            className="px-2.5 py-1.5 rounded-lg border border-rule bg-paper3/80 hover:bg-paper2 text-xs text-ink font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                            className="py-2 px-2 rounded-lg border border-rule/70 bg-paper/70 hover:bg-paper3 text-xs text-ink font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                         >
-                            {isTranslating ? <Loader2 size={14} className="animate-spin text-brass" /> : <Languages size={14} className="text-brass" />}
+                            {isTranslating ? <Loader2 size={13} className="animate-spin text-brass shrink-0" /> : <Languages size={13} className="text-brass shrink-0" />}
                             <span>Doblaje</span>
                         </button>
                         {canSwitchMode && (
                             <button
                                 onClick={handleMode}
                                 disabled={isSwitchingMode}
-                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${isPro ? 'border-brass bg-brass/15 text-brass' : 'border-rule bg-paper3/80 text-muted hover:text-ink'}`}
+                                className={`py-2 px-2 rounded-lg border text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${isPro ? 'border-brass bg-brass/15 text-brass' : 'border-rule/70 bg-paper/70 text-muted hover:text-ink'}`}
                                 title="Modo Pro: encuadre cerrado para podcasts"
                             >
-                                <Sparkles size={14} className={isPro ? 'text-brass' : 'text-muted'} />
-                                <span>{isPro ? 'Modo Pro ON' : 'Modo Pro'}</span>
+                                <Sparkles size={13} className={isPro ? 'text-brass shrink-0' : 'text-muted shrink-0'} />
+                                <span>{isPro ? 'Pro ON' : 'Modo Pro'}</span>
                             </button>
                         )}
                     </div>
 
-                    {/* Primary CTAs: Download & Publish */}
-                    <div className="flex items-center gap-2.5">
+                    {/* Primary CTAs: Download & Publish in balanced grid */}
+                    <div className="grid grid-cols-2 gap-2 pt-0.5">
                         <button
                             onClick={(e) => {
                                 e.preventDefault();
@@ -1118,17 +1118,17 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                                 }
                                 downloadClip();
                             }}
-                            className="flex-1 py-2.5 px-4 rounded-xl border border-rule bg-paper3 hover:bg-paper2 text-xs font-semibold text-ink flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                            className="py-2.5 px-3 rounded-xl border border-rule bg-paper3 hover:bg-paper2 text-xs font-semibold text-ink flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
                         >
-                            <Download size={15} />
-                            <span>{downloadPct === null ? 'Descargar Clip' : `Descargando ${downloadPct}%`}</span>
+                            <Download size={14} className="shrink-0" />
+                            <span className="truncate">{downloadPct === null ? 'Descargar Clip' : `${downloadPct}%`}</span>
                         </button>
                         <button
                             onClick={() => setShowModal(true)}
-                            className="flex-1 py-2.5 px-4 rounded-xl bg-brass hover:bg-brass-bright text-paper font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brass/25 transition-all cursor-pointer"
+                            className="py-2.5 px-3 rounded-xl bg-brass hover:bg-brass-bright text-paper font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brass/25 transition-all cursor-pointer"
                         >
-                            <Share2 size={15} />
-                            <span>Publicar en Redes</span>
+                            <Share2 size={14} className="shrink-0" />
+                            <span className="truncate">Publicar en Redes</span>
                         </button>
                     </div>
                 </div>

@@ -126,9 +126,9 @@ def concat_list_content(segment_paths):
 # going from 32% to 42% of the frame height. 0.55 was tried and rejected — it
 # reaches 55% height but throws away 42% of the width.
 #
-# GENERAL_CONTENT_HEIGHT_RATIO=0.32 restores the old full-width behaviour.
+# GENERAL_CONTENT_HEIGHT_RATIO=0.32 restores full-width behaviour (no edge cropping).
 GENERAL_CONTENT_HEIGHT_RATIO = float(
-    os.environ.get("GENERAL_CONTENT_HEIGHT_RATIO", "0.42"))
+    os.environ.get("GENERAL_CONTENT_HEIGHT_RATIO", "0.32"))
 
 
 def full_width_content_height(orig_w, orig_h, out_w):
@@ -749,25 +749,51 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     # asking Gemini: offered as a fourth choice it answered "screencast" on all
     # five clips that had one, while camera_inset.detect finds all five with no
     # false positives. The box is fixed for the whole video, so it is found once.
-    inset = None
-    try:
-        inset = camera_inset.detect(input_video)
-    except Exception as e:
-        print(f"   ⚠️ Inset check failed ({e}) — using the standard layouts.")
-    if inset:
-        print(f"   📹 Webcam inset detected at {inset}")
-        for scene_idx, (start_f, end_f) in enumerate(scene_boundaries):
-            if camera_inset.present_in_scene(input_video, inset, start_f, end_f):
-                strategies[scene_idx] = 'INSET'
-                splits.pop(start_f, None)
-                insets[start_f] = inset
-                inset_count += 1
-
     screencasts = {}
     focus_crops = {}
     insets = {}
     wide_count = 0
     inset_count = 0
+
+    auto_inset = os.environ.get("AUTO_INSET", "0") == "1"
+    inset = None
+    try:
+        inset = camera_inset.detect(input_video)
+    except Exception as e:
+        print(f"   ⚠️ Inset check failed ({e}) — using the standard layouts.")
+    if not inset and auto_inset:
+        try:
+            import cv2
+            cap = cv2.VideoCapture(input_video)
+            total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
+            for f_pos in [int(total_f * 0.1), int(total_f * 0.3), int(total_f * 0.5), int(total_f * 0.7)]:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, f_pos)
+                ret_f, f_frame = cap.read()
+                if ret_f:
+                    faces = screencast_layout.detect_faces_full_res(f_frame)
+                    if faces:
+                        fx, fy, fw, fh = faces[0]['box']
+                        pad_w = int(fw * 0.5)
+                        pad_h = int(fh * 0.6)
+                        bx = max(0, fx - pad_w)
+                        by = max(0, fy - pad_h)
+                        bw = min(orig_w - bx, fw + pad_w * 2)
+                        bh = min(orig_h - by, fh + pad_h * 2)
+                        inset = (bx, by, bw, bh)
+                        print(f"   📹 Fallback facecam detected at {inset}")
+                        break
+            cap.release()
+        except Exception:
+            pass
+    if inset:
+        print(f"   📹 Webcam inset detected at {inset}")
+        for scene_idx, (start_f, end_f) in enumerate(scene_boundaries):
+            if auto_inset or camera_inset.present_in_scene(input_video, inset, start_f, end_f):
+                strategies[scene_idx] = 'INSET'
+                splits.pop(start_f, None)
+                insets[start_f] = inset
+                inset_count += 1
+
     if content_ranges:
         for scene_idx, (plan, centre) in screencast_layout.detect_screencast_scenes(
                 input_video, scenes, strategies, content_ranges).items():

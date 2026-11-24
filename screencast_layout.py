@@ -172,19 +172,32 @@ def detect_faces_full_res(frame):
 
     h, w, _ = frame.shape
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    with m.DETECT_LOCK:
-        if not getattr(m, 'face_detection', None):
-            return []
-        results = m.face_detection.process(rgb)
-    if not results or not getattr(results, 'detections', None):
-        return []
-
     out = []
-    for detection in results.detections:
-        b = detection.location_data.relative_bounding_box
-        box = [int(b.xmin * w), int(b.ymin * h),
-               int(b.width * w), int(b.height * h)]
-        out.append({'box': box, 'score': box[2] * box[3]})
+    with m.DETECT_LOCK:
+        if getattr(m, 'face_detection', None):
+            try:
+                results = m.face_detection.process(rgb)
+                if results and getattr(results, 'detections', None):
+                    for detection in results.detections:
+                        b = detection.location_data.relative_bounding_box
+                        box = [int(b.xmin * w), int(b.ymin * h),
+                               int(b.width * w), int(b.height * h)]
+                        out.append({'box': box, 'score': box[2] * box[3]})
+            except Exception:
+                pass
+
+    if not out:
+        # Robust fallback using OpenCV built-in cascade classifier (native, fast, no external torch/mediapipe needed)
+        try:
+            cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            if not cascade.empty():
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                cv_faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+                for (fx, fy, fw, fh) in cv_faces:
+                    out.append({'box': [int(fx), int(fy), int(fw), int(fh)], 'score': int(fw * fh)})
+        except Exception:
+            pass
+
     return out
 
 
