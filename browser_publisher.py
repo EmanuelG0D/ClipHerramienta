@@ -271,7 +271,24 @@ def prepare_post(
     description: str = "",
     schedule_datetime: Optional[datetime] = None
 ) -> Dict[str, Any]:
-    full_text = f"{title}\n\n{description}".strip() if title else description.strip()
+    # Filtrar títulos que sean solo placeholders (ej. "Clip #1", "Clip 2")
+    cleaned_title = (title or "").strip()
+    if cleaned_title.lower().startswith("clip #") or cleaned_title.lower().startswith("clip ") or cleaned_title.lower() == "viral short":
+        cleaned_title = ""
+
+    cleaned_desc = (description or "").strip()
+
+    # Si el título ya está incluido en la descripción, no duplicarlo
+    if cleaned_title and cleaned_desc:
+        if cleaned_title in cleaned_desc:
+            full_text = cleaned_desc
+        else:
+            full_text = f"{cleaned_title}\n\n{cleaned_desc}"
+    elif cleaned_title:
+        full_text = cleaned_title
+    else:
+        full_text = cleaned_desc
+
     plat = platform.lower()
 
     if "face" in plat:

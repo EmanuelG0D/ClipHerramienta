@@ -23,7 +23,7 @@ export default function SmartScheduleModal({ isOpen, onClose, clips, jobId }) {
             try {
                 const payload = {
                     clips: clips.map((c, i) => {
-                        const title = c.video_title_for_facebook || c.video_title_for_youtube_short || c.viral_hook_text || c.headline || c.title || `Clip #${i + 1}`;
+                        const title = c.video_title_for_facebook || c.video_title_for_youtube_short || c.viral_hook_text || c.headline || c.title || '';
                         const description = c.video_description_for_facebook || c.video_description_for_tiktok || c.video_description_for_instagram || c.post_text || c.caption || c.description || '';
                         return {
                             clip_index: i,
