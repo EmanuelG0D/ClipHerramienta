@@ -102,7 +102,7 @@ def detect(video_path, frames=None):
     if not ENABLED:
         return None
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    if not api_key or api_key == "antigravity":
         return None
     model_name = os.environ.get("GEMINI_MODEL") or 'gemini-3.1-flash-lite'
     try:
