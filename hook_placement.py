@@ -243,8 +243,9 @@ def detect_faces(video_path, window_start=0.0, window_end=None, samples=SAMPLES)
                     boxes.append((b.xmin, b.ymin, b.xmin + b.width, b.ymin + b.height))
                 frames.append(boxes)
         return frames or None
+    except ImportError:
+        return None
     except Exception as e:
-        print(f"⚠️ Hook placement: face detection failed ({type(e).__name__}: {e})")
         return None
     finally:
         cap.release()
