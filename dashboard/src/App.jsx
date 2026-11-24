@@ -421,6 +421,7 @@ function App() {
   // The job a restored session was polling is no longer on the server.
   const [jobGone, setJobGone] = useState(false);
   const [showScheduleWeek, setShowScheduleWeek] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   // Clip editor overlay: index of the clip being edited, or null.
   const [editingClip, setEditingClip] = useState(null);
   const [reframingClip, setReframingClip] = useState(null);
@@ -1426,43 +1427,15 @@ function App() {
   };
   const tabLocked = (id) => tutorialLock && id !== 'dashboard';
 
-  // Shared footer links (landing, repo, pricing, contact) — same list in the
-  // desktop rail and the mobile drawer, so they can never drift apart.
+  // Shared footer links: only "página de inicio" kept per user request
   const NavFooterLinks = ({ collapsed = false }) => (
-    <>
-      <a
-        href="#landing"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-      >
-        <Globe size={14} className="shrink-0" />
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>página de inicio</span>
-      </a>
-      <a
-        href="https://github.com/mutonby/openshorts"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-      >
-        <svg height="14" viewBox="0 0 16 16" version="1.1" width="14" aria-hidden="true" fill="currentColor" className="shrink-0"><path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>código abierto</span>
-      </a>
-      {billingEnabled && (
-        <a
-          href="#/pricing"
-          className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-        >
-          <Sparkles size={14} className="shrink-0" />
-          <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>plans &amp; pricing</span>
-        </a>
-      )}
-      <a
-        href="mailto:info@openshorts.app"
-        className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
-      >
-        <Mail size={14} className="shrink-0" />
-        <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>info@openshorts.app</span>
-      </a>
-    </>
+    <a
+      href="#landing"
+      className="flex items-center gap-2 px-3 py-2 text-xs lowercase text-muted hover:text-ink2 transition-colors"
+    >
+      <Globe size={14} className="shrink-0" />
+      <span className={collapsed ? 'hidden lg:block truncate' : 'truncate'}>página de inicio</span>
+    </a>
   );
 
   // Desktop rail: icon-only from md, labelled from lg. Below md it is gone
@@ -2263,22 +2236,35 @@ function App() {
 
           {/* View: Processing / Results (Split View) */}
           {activeTab === 'dashboard' && (status === 'processing' || status === 'complete' || status === 'error') && (
-            <div className="h-full flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
+            <div className={`h-full flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto ${status === 'complete' && !showAnalysis ? '' : 'md:overflow-y-hidden'} custom-scrollbar animate-fade`}>
 
               {/* Left Panel: Preview & Status */}
-              <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
-                <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
-                    <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
-                    Análisis en Vivo
-                  </h2>
-                  <span className={status === 'processing' ? 'badge-brass' :
-                    status === 'complete' ? 'badge-ok' :
-                      'badge-danger'
-                    }>
-                    {status === 'processing' ? 'PROCESANDO' : status === 'complete' ? 'COMPLETADO' : 'ERROR'}
-                  </span>
-                </div>
+              {(status !== 'complete' || showAnalysis) && (
+                <div className={`${status === 'complete' ? 'w-full md:w-[35%] lg:w-[30%]' : 'w-full md:w-[55%] lg:w-[60%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
+                  <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
+                      <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
+                      Análisis en Vivo
+                    </h2>
+                    <div className="flex items-center gap-2">
+                      <span className={status === 'processing' ? 'badge-brass' :
+                        status === 'complete' ? 'badge-ok' :
+                          'badge-danger'
+                        }>
+                        {status === 'processing' ? 'PROCESANDO' : status === 'complete' ? 'COMPLETADO' : 'ERROR'}
+                      </span>
+                      {status === 'complete' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAnalysis(false)}
+                          className="text-xs text-muted hover:text-ink px-2 py-0.5 rounded bg-paper3 border border-rule transition-colors"
+                          title="Ocultar análisis"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
                 {/* Trimmed run: say it while it renders, not only once the
                     clips land, so the shorter result is no surprise. */}
@@ -2402,194 +2388,64 @@ function App() {
                   )}
                 </div>
               </div>
+            )}
 
-              {/* Right Panel: Results Grid */}
-              <div className={`${status === 'complete' ? 'w-full md:w-[70%] lg:w-[75%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 transition-all duration-700 ease-in-out`}>
-                {/* Title + counters on one row, the two actions on their own row
-                    below. Wrapping them all together dropped a lone half-width
-                    "schedule week" pill under the title on a phone. */}
-                <div className="mb-4 sm:mb-6 shrink-0 space-y-3">
-                  <h2 className="font-display lowercase text-lg sm:text-xl text-ink flex flex-wrap items-center gap-2">
-                    <span className="mr-auto">Shorts Generados</span>
-                    {results?.clips?.length > 0 && (
-                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full">
-                        {results.clips.length} Clips
-                      </span>
-                    )}
-                    {results?.cost_analysis && !isManaged && (
-                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full" title={`Input: ${results.cost_analysis.input_tokens} | Output: ${results.cost_analysis.output_tokens}`}>
-                        GEMINI · ${results.cost_analysis.total_cost.toFixed(5)}
-                      </span>
-                    )}
+            {/* Right Panel: Results Grid */}
+            <div className={`${status === 'complete' && !showAnalysis ? 'w-full max-w-7xl mx-auto' : status === 'complete' ? 'w-full md:w-[65%] lg:w-[70%]' : 'w-full md:w-[45%] lg:w-[40%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 transition-all duration-700 ease-in-out`}>
+              {/* Header */}
+              <div className="mb-5 pb-4 border-b border-rule flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink flex items-center gap-2">
+                    Clips Generados
                   </h2>
-                  {results?.clips?.length > 0 && status === 'complete' && (
-                    <div className="flex flex-col sm:flex-row sm:justify-end items-stretch sm:items-center gap-2">
-                      <button
-                        onClick={handleDownloadAll}
-                        disabled={downloadingAll}
-                        className="btn-ghost px-3 py-2 text-xs"
-                        title="Descargar todos los clips en un archivo ZIP"
-                      >
-                        {downloadingAll
-                          ? <><Loader2 size={14} className="animate-spin" />comprimiendo en zip…</>
-                          : <><Download size={14} />descargar todo</>}
-                      </button>
-                      {results.clips.length > 1 && (
-                        <button
-                          onClick={() => setShowScheduleWeek(true)}
-                          className="btn-primary px-4 py-2 text-xs"
-                        >
-                          <Calendar size={14} />
-                          programar semana
-                        </button>
-                      )}
-                    </div>
+                  {results?.clips?.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {results.clips.length} {results.clips.length === 1 ? 'clip listo' : 'clips listos'}
+                    </span>
                   )}
                 </div>
-
-                {status === 'complete' && results?.clips?.length > 0 && (
-                  <div className="mb-2 space-y-2">
-                    {/* Partial job: the clips on screen come from the first N
-                        minutes only. Say so, and sell the rest of the video. */}
-                    {partialJob && !partialJob.chosen && (
+                {results?.clips?.length > 0 && status === 'complete' && (
+                  <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                    {!showAnalysis && (
                       <button
-                        onClick={() => openUpsell({ source: 'partial_banner', partialJob })}
-                        className="w-full text-left px-3 py-2.5 rounded-input bg-paper3 border border-brass/40 hover:border-brass text-sm transition-colors"
+                        type="button"
+                        onClick={() => setShowAnalysis(true)}
+                        className="px-3 py-1.5 rounded-lg border border-rule bg-paper3 hover:bg-paper2 text-muted hover:text-ink text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Ver video original y registros del sistema"
                       >
-                        <span className="text-ink">These clips come from the first {partialJob.processed_minutes} of {partialJob.total_minutes} minutes.</span>{' '}
-                        <span className="text-brass font-medium">Clip the whole video →</span>
+                        <Activity size={14} />
+                        Ver análisis
                       </button>
                     )}
-                    {/* Peak-moment upsell: they just SAW their clips — sell while
-                        they're proud of the result, before asking for stars. */}
-                    {firstVideoJob && !partialJob && (
-                      <button
-                        onClick={() => openUpsell({ source: 'first_video_banner' })}
-                        className="w-full text-left px-3 py-2.5 rounded-input bg-paper3 border border-brass/40 hover:border-brass text-sm transition-colors"
-                      >
-                        <span className="text-ink">Your first video is on us: we clipped all of it.</span>{' '}
-                        <span className="text-muted">That used this month's free minutes.</span>{' '}
-                        <span className="text-brass font-medium">Keep clipping →</span>
-                      </button>
-                    )}
-                    {plan === 'free' && (!partialJob || partialJob.chosen) && !firstVideoJob && (
-                      <button
-                        onClick={() => openUpsell({ source: 'results_banner' })}
-                        className="w-full text-left px-3 py-2.5 rounded-input bg-paper3 border border-brass/40 hover:border-brass text-sm transition-colors"
-                      >
-                        <span className="text-ink">Like these clips?</span>{' '}
-                        <span className="text-muted">Upgrade and these exact clips lose the watermark on the spot, and stay for good.</span>{' '}
-                        <span className="text-brass font-medium">Remove the watermark →</span>
-                      </button>
-                    )}
-                    {showAutopilotNudge && (
-                      <div className="w-full flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-input bg-paper3 border border-rule text-sm">
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <Rocket size={16} className="text-brass shrink-0 mt-0.5" />
-                          <div className="min-w-0 leading-relaxed">
-                            <span className="text-ink">Want this for every new video, without coming back?</span>{' '}
-                            <span className="text-muted">
-                              Autopilot watches your YouTube channel and clips each new upload on its own
-                              {plan === 'free' ? ', included in every paid plan.' : '.'}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => dismissAutopilotNudge('AutopilotNudgeDismissed')}
-                            aria-label="dismiss"
-                            className="sm:hidden shrink-0 -m-1 p-1 text-muted hover:text-ink"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                        <button
-                          onClick={() => { dismissAutopilotNudge('AutopilotNudgeClicked'); setActiveTab('autopilot'); }}
-                          className="btn-quiet shrink-0 text-xs py-1.5 px-3 lowercase w-full sm:w-auto"
-                        >
-                          set up autopilot →
-                        </button>
-                        <button
-                          onClick={() => dismissAutopilotNudge('AutopilotNudgeDismissed')}
-                          aria-label="dismiss"
-                          className="hidden sm:block shrink-0 p-1 text-muted hover:text-ink"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )}
-                    {/* Distribution nudge at the same peak: clips on screen,
-                        publishing them is one connect away. Hidden once any
-                        network is linked or the user dismisses it. */}
-                    {showSocialNudge && (
-                      <div className="w-full flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2.5 rounded-input bg-paper3 border border-rule text-sm">
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div className="min-w-0 leading-relaxed">
-                            <span className="text-ink">Publish these clips straight from here.</span>{' '}
-                            <span className="text-muted">Connect your YouTube, TikTok or Instagram once — after that every clip is one click from posted.</span>
-                          </div>
-                          {/* On a phone the dismiss X rides the copy, so the CTA
-                              below can run the full width of the card. */}
-                          <button
-                            onClick={() => {
-                              track('SocialNudgeDismissed');
-                              setSocialNudgeDismissed(true);
-                              try { localStorage.setItem('os_social_nudge_dismissed', '1'); } catch (_) { /* ignore */ }
-                            }}
-                            aria-label="dismiss"
-                            className="sm:hidden shrink-0 -m-1 p-1 text-muted hover:text-ink"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                        <button
-                          onClick={() => { track('SocialNudgeConnect'); handleConnectSocials(); }}
-                          className="btn-quiet shrink-0 text-xs py-1.5 px-3 lowercase w-full sm:w-auto"
-                        >
-                          connect socials →
-                        </button>
-                        <button
-                          onClick={() => {
-                            track('SocialNudgeDismissed');
-                            setSocialNudgeDismissed(true);
-                            try { localStorage.setItem('os_social_nudge_dismissed', '1'); } catch (_) { /* ignore */ }
-                          }}
-                          aria-label="dismiss"
-                          className="hidden sm:block shrink-0 p-1 text-muted hover:text-ink"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )}
-                    {/* Self-host only: cloud archives clips to the video library,
-                        here they really are gone once the retention sweep runs. */}
-                    {!billingEnabled && jobRetentionSeconds > 0 && (
-                      <div className="px-3 py-2.5 rounded-input bg-paper3 border border-paper3 text-sm">
-                        <span className="text-ink">Clips are kept for {formatRetention(jobRetentionSeconds)}, then deleted.</span>{' '}
-                        <span className="text-muted">Download what you want to keep, or raise JOB_RETENTION_SECONDS in your env.</span>
-                      </div>
-                    )}
+                    <button
+                      onClick={handleDownloadAll}
+                      disabled={downloadingAll}
+                      className="px-3.5 py-1.5 rounded-lg bg-paper3 hover:bg-paper2 border border-rule text-ink text-xs font-medium flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                      title="Descargar todos los clips en un archivo ZIP"
+                    >
+                      {downloadingAll
+                        ? <><Loader2 size={14} className="animate-spin text-brass" /> Comprimiendo ZIP…</>
+                        : <><Download size={14} /> Descargar todo</>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowSmartScheduleModal(true)}
+                      className="px-4 py-1.5 rounded-lg bg-brass hover:bg-brass-bright text-paper font-semibold text-xs flex items-center gap-2 shadow-lg shadow-brass/25 transition-all cursor-pointer"
+                      title="Programar todos los clips en Meta Reels en los mejores horarios"
+                    >
+                      <Calendar size={14} />
+                      Programar todos ({results.clips.length})
+                    </button>
                   </div>
                 )}
+              </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
-                  {results && results.clips && results.clips.length > 0 ? (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-3 p-3 mb-4 bg-paper3/80 border border-rule rounded-xl shadow-sm">
-                        <div className="flex items-center gap-2 text-xs text-ink font-medium">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          <span>{results.clips.length} {results.clips.length === 1 ? 'clip listo' : 'clips listos'}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowSmartScheduleModal(true)}
-                          className="px-3.5 py-1.5 rounded-lg bg-brass/15 hover:bg-brass/25 border border-brass/40 text-brass text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                          title="Distribuye todos los clips en los mejores horarios de gaming sin canibalizar vistas"
-                        >
-                          <Calendar size={13} />
-                          Programar todos ({results.clips.length})
-                        </button>
-                      </div>
-                      <div className={`grid gap-4 pb-10 ${status === 'complete' ? 'grid-cols-[repeat(auto-fill,minmax(min(100%,600px),1fr))]' : 'grid-cols-1'}`}>
-                        {rankedClips.map(({ clip, index: i }) => (
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                {results && results.clips && results.clips.length > 0 ? (
+                  <>
+                    <div className={`grid gap-6 pb-10 ${status === 'complete' && !showAnalysis ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                      {rankedClips.map(({ clip, index: i }) => (
                           <ResultCard
                             key={`${jobId}-${i}-${clip.video_url || ''}`}
                             clip={clip}
