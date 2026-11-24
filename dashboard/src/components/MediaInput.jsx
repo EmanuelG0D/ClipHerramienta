@@ -489,7 +489,8 @@ export default function MediaInput({ onProcess, isProcessing, onViewJob }) {
                                     className="input-field !w-auto text-xs py-1.5"
                                     aria-label="diseño vertical"
                                 >
-                                    <option value="auto">Automático (la IA elige por escena)</option>
+                                    <option value="auto">Automático (la IA detecta streamer y formato)</option>
+                                    <option value="streamer">Streamer arriba + Gameplay (Facecam gaming)</option>
                                     <option value="split">Dos personas divididas (split)</option>
                                     <option value="screencast">Pantalla sobre presentador</option>
                                     <option value="none">Encuadre simple centrado</option>

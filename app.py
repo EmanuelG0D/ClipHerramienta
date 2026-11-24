@@ -5630,6 +5630,8 @@ LAYOUT_ENV = {
     "screencast": "SCREENCAST_LAYOUT",  # slides/screen share over the speaker
     "speaker_cut": "SPEAKER_CUT",     # hard cuts to whoever is talking
     "punch_in": "PUNCH_IN",           # small push on the clip's beats
+    "streamer": "AUTO_INSET",         # streamer facecam on top + gameplay below
+    "inset": "AUTO_INSET",
 }
 
 # Stacking and cutting both need to know who is speaking.
