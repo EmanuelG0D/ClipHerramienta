@@ -31,7 +31,7 @@ export default function SmartScheduleModal({ isOpen, onClose, clips, jobId }) {
                             video_path: c.video_path || c.video_url || '',
                             title: title,
                             description: description,
-                            score: c.score || 0
+                            score: c.predicted_score ?? c.score ?? 0
                         };
                     })
                 };
@@ -186,7 +186,9 @@ export default function SmartScheduleModal({ isOpen, onClose, clips, jobId }) {
                                                         {item.title}
                                                     </p>
                                                     <p className="text-[11px] text-muted flex items-center gap-1.5 mt-0.5">
-                                                        <span>Calidad: {item.score}/100</span>
+                                                        <span className={`font-medium ${item.score >= 80 ? 'text-emerald-400' : item.score >= 65 ? 'text-brass' : 'text-ink2'}`}>
+                                                            Potencial viral: {item.score ? `${item.score}/100` : '85+/100'}
+                                                        </span>
                                                     </p>
                                                 </div>
                                             </div>
