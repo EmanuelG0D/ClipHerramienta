@@ -121,14 +121,17 @@ class TestInsetFiltergraph:
         cam = graph.split("[ca]")[-1].split("[cam]")[0]
         crop_w = int(cam.split("w=")[1].split(":")[0])
         crop_h = int(cam.split("h=")[1].split(":")[0])
-        band_h = int(cam.split("scale=1080:")[1].split("[")[0])
-        assert abs((crop_w / crop_h) - (1080 / band_h)) < 0.05
+        scale_part = cam.split("scale=")[1].split("[")[0]
+        cam_w, cam_h = [int(v) for v in scale_part.split(":")]
+        assert abs((crop_w / crop_h) - (cam_w / cam_h)) < 0.05
 
     def test_camera_band_is_capped(self):
         # A near-square inset would otherwise claim most of the frame.
         graph = inset_filtergraph(1920, 1080, 1080, 1920, (1500, 700, 300, 290))
-        band_h = int(graph.split("[cam]")[0].split("scale=1080:")[-1])
-        assert band_h <= 1920 * 0.40 + 2
+        cam = graph.split("[ca]")[-1].split("[cam]")[0]
+        scale_part = cam.split("scale=")[1].split("[")[0]
+        _cam_w, cam_h = [int(v) for v in scale_part.split(":")]
+        assert cam_h <= 1920 * 0.40 + 2
 
     def test_crop_coordinates_stay_inside_the_source(self):
         graph = inset_filtergraph(1920, 1080, 1080, 1920, (1850, 1000, 70, 80))

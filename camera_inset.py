@@ -393,35 +393,32 @@ MAX_CAMERA_RATIO = 0.40
 
 
 def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
-    """Screen on top at full width, the webcam inset below.
-
-    The screen keeps its whole width, which is the point: a game HUD or a
-    desktop puts what matters at the edges. The inset is scaled up so the person
-    reads at a size the source never gave them.
-
-    The camera band takes its height from the INSET'S OWN aspect ratio rather
-    than a fixed share of the frame. A fixed share was tried first and stretched
-    every face sideways: a 16:9 inset forced into a 2:1 band is a 12% horizontal
-    stretch, and it is immediately visible on a face.
+    """Gameplay screen in the vertical center, subtitles clean below, and streamer facecam
+    as a compact, sharp PIP box ('cuadrito') on top without full-width stretching.
     """
     box_w = max(2, box[2])
     box_h = max(2, box[3])
 
-    if camera_ratio is not None:
-        cam_h = int(out_h * camera_ratio)
-    else:
-        cam_h = int(round(out_w * box_h / float(box_w)))
-    cam_h = min(cam_h, int(out_h * MAX_CAMERA_RATIO))
-    cam_h -= cam_h % 2
-
     screen_h = int(round(out_w * orig_h / float(orig_w)))
     screen_h -= screen_h % 2
-    screen_h = max(2, min(screen_h, out_h - cam_h - 2))
+    # Vertically center gameplay screen in the canvas
+    y_screen = (out_h - screen_h) // 2
+    y_screen -= y_screen % 2
 
-    # Widen (or heighten) the crop to the band's aspect so the scale below is
-    # uniform. Clamped to the frame, so an inset hard against an edge simply
-    # keeps whatever it can reach.
-    target_aspect = out_w / float(cam_h)
+    # Compact streamer box ('cuadrito'): ~36-40% of width, preserving aspect ratio
+    # without blowing up the facecam across the whole screen.
+    if camera_ratio is not None and camera_ratio < 0.6:
+        cam_w = int(round(out_w * camera_ratio))
+    else:
+        cam_w = int(round(out_w * 0.38))
+    cam_w -= cam_w % 2
+
+    cam_h = int(round(cam_w * box_h / float(box_w)))
+    cam_h = min(cam_h, int(y_screen * 0.70))
+    cam_h -= cam_h % 2
+
+    # Widen (or heighten) the crop to match cam_w / cam_h aspect
+    target_aspect = cam_w / float(cam_h)
     x, y, w, h = box
     if w / float(h) < target_aspect:
         want_w = min(orig_w, int(round(h * target_aspect)))
@@ -439,20 +436,19 @@ def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
     x -= x % 2
     y -= y % 2
 
-    filler_h = out_h - screen_h - cam_h
-    # Streamer facecam on TOP, gameplay screen below (classic viral gaming/streaming layout)
-    y_cam = max(0, filler_h // 4)
-    y_screen = y_cam + cam_h + max(0, filler_h // 4)
+    # Center the streamer box in the top blurred space
+    x_cam = (out_w - cam_w) // 2
+    x_cam -= x_cam % 2
+    y_cam = (y_screen - cam_h) // 2
+    y_cam -= y_cam % 2
 
     return (
         f"[0:v]split=3[bga][sa][ca];"
-        # Blurred backdrop so the leftover strip is not a black bar. Scaled by
-        # HEIGHT: scaling a 16:9 source to 1080 wide gives 608 tall, and there
-        # is no 1920-tall crop to take out of that.
+        # Blurred backdrop so the leftover strip is not a black bar
         f"[bga]{blurred_backdrop(out_w, out_h, 14)}[bg];"
         f"[sa]scale={out_w}:{screen_h}[screen];"
-        f"[ca]crop=w={w}:h={h}:x={x}:y={y},scale={out_w}:{cam_h}[cam];"
-        f"[bg][cam]overlay=x=0:y={y_cam}[withcam];"
+        f"[ca]crop=w={w}:h={h}:x={x}:y={y},scale={cam_w}:{cam_h}[cam];"
+        f"[bg][cam]overlay=x={x_cam}:y={y_cam}[withcam];"
         f"[withcam][screen]overlay=x=0:y={y_screen},"
         f"setsar=1[v]"
     )

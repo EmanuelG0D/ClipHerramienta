@@ -755,12 +755,14 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     wide_count = 0
     inset_count = 0
 
+    auto_layout = os.environ.get("AUTO_LAYOUT", "1").strip().lower() != "0"
     auto_inset = os.environ.get("AUTO_INSET", "0") == "1"
     inset = None
-    try:
-        inset = camera_inset.detect(input_video)
-    except Exception as e:
-        print(f"   ⚠️ Inset check failed ({e}) — using the standard layouts.")
+    if auto_layout or auto_inset:
+        try:
+            inset = camera_inset.detect(input_video)
+        except Exception as e:
+            print(f"   ⚠️ Inset check failed ({e}) — using the standard layouts.")
     if not inset and auto_inset:
         try:
             import cv2
